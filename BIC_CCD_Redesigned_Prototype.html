@@ -1,0 +1,1215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B&I Data Metrics & Controls — Redesigned</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0b0f1a;--bg-card:#111827;--bg-card-hover:#1a2235;--bg-surface:#0f1629;
+  --border:#1e293b;--border-active:#334155;
+  --text-primary:#f1f5f9;--text-secondary:#94a3b8;--text-muted:#64748b;
+  --accent:#3b82f6;--accent-glow:rgba(59,130,246,.15);
+  --green:#10b981;--green-bg:rgba(16,185,129,.1);--green-border:rgba(16,185,129,.25);
+  --red:#ef4444;--red-bg:rgba(239,68,68,.08);--red-border:rgba(239,68,68,.25);
+  --amber:#f59e0b;--amber-bg:rgba(245,158,11,.08);--amber-border:rgba(245,158,11,.25);
+  --purple:#a78bfa;--purple-bg:rgba(167,139,250,.08);
+  --cyan:#22d3ee;
+  --sidebar-w:260px;--header-h:56px;
+  --radius:10px;--radius-sm:6px;--radius-lg:14px;
+  --shadow:0 1px 3px rgba(0,0,0,.3),0 4px 12px rgba(0,0,0,.2);
+  --font:'DM Sans',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;
+}
+html{font-size:14px}
+body{font-family:var(--font);background:var(--bg);color:var(--text-primary);overflow-x:hidden;min-height:100vh}
+a{color:var(--accent);text-decoration:none}
+
+/* ─── HEADER ─── */
+.header{position:fixed;top:0;left:0;right:0;height:var(--header-h);background:rgba(11,15,26,.85);backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;z-index:100;gap:16px}
+.header-logo{display:flex;align-items:center;gap:10px;font-weight:700;font-size:1rem;letter-spacing:-.02em;white-space:nowrap}
+.header-logo .icon{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#8b5cf6);display:flex;align-items:center;justify-content:center;font-size:.75rem;color:#fff;font-weight:700}
+.header-nav{display:flex;gap:2px;margin-left:auto;background:var(--bg-card);border-radius:8px;padding:3px;border:1px solid var(--border)}
+.header-nav button{padding:6px 14px;border-radius:6px;border:none;background:transparent;color:var(--text-secondary);font-family:var(--font);font-size:.8rem;cursor:pointer;font-weight:500;transition:.2s}
+.header-nav button.active{background:var(--accent);color:#fff}
+.header-nav button:hover:not(.active){color:var(--text-primary);background:rgba(255,255,255,.05)}
+.header-badges{display:flex;gap:8px;margin-left:16px}
+.badge{padding:4px 10px;border-radius:20px;font-size:.72rem;font-weight:600;display:flex;align-items:center;gap:4px}
+.badge.red{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+.badge.amber{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}
+.badge.green{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.header-meta{font-size:.75rem;color:var(--text-muted);white-space:nowrap;margin-left:8px}
+.header-avatar{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,#6366f1,#a78bfa);display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;color:#fff;margin-left:8px;cursor:pointer;flex-shrink:0}
+
+/* ─── SIDEBAR ─── */
+.sidebar{position:fixed;top:var(--header-h);left:0;bottom:0;width:var(--sidebar-w);background:var(--bg-surface);border-right:1px solid var(--border);padding:16px 12px;overflow-y:auto;z-index:90;display:flex;flex-direction:column}
+.sidebar-section{margin-bottom:20px}
+.sidebar-label{font-size:.65rem;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);padding:0 12px;margin-bottom:6px}
+.sidebar-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:var(--radius-sm);cursor:pointer;transition:.15s;color:var(--text-secondary);font-size:.85rem;font-weight:500;position:relative}
+.sidebar-item:hover{background:rgba(255,255,255,.04);color:var(--text-primary)}
+.sidebar-item.active{background:var(--accent-glow);color:var(--accent);font-weight:600}
+.sidebar-item.active::before{content:'';position:absolute;left:0;top:6px;bottom:6px;width:3px;border-radius:0 3px 3px 0;background:var(--accent)}
+.sidebar-item .icon{width:20px;text-align:center;font-size:.9rem;flex-shrink:0}
+.sidebar-item .count{margin-left:auto;background:var(--red);color:#fff;font-size:.65rem;font-weight:700;padding:2px 7px;border-radius:10px;min-width:20px;text-align:center}
+.sidebar-item .count.blue{background:var(--accent)}
+.sidebar-item .count.amber{background:var(--amber);color:#000}
+.sidebar-user{margin-top:auto;padding:12px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px}
+.sidebar-user-info{font-size:.8rem;font-weight:500;line-height:1.3}
+.sidebar-user-info span{display:block;font-size:.7rem;color:var(--text-muted);font-weight:400}
+
+/* ─── MAIN ─── */
+.main{margin-left:var(--sidebar-w);margin-top:var(--header-h);padding:24px 28px;min-height:calc(100vh - var(--header-h))}
+
+/* ─── ROLE BANNER ─── */
+.role-banner{background:linear-gradient(135deg,rgba(59,130,246,.08),rgba(139,92,246,.06));border:1px solid rgba(59,130,246,.15);border-radius:var(--radius);padding:12px 20px;margin-bottom:20px;display:flex;align-items:center;gap:12px;font-size:.82rem}
+.role-banner .dot{width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0}
+.role-banner strong{color:var(--accent)}
+
+/* ─── PAGE HEADER ─── */
+.page-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;gap:20px;flex-wrap:wrap}
+.page-title{font-size:1.6rem;font-weight:700;letter-spacing:-.03em;line-height:1.2}
+.page-subtitle{color:var(--text-secondary);font-size:.85rem;margin-top:4px}
+.page-actions{display:flex;gap:8px;flex-shrink:0}
+.btn{padding:8px 16px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-family:var(--font);font-size:.8rem;cursor:pointer;display:flex;align-items:center;gap:6px;font-weight:500;transition:.15s}
+.btn:hover{border-color:var(--border-active);background:var(--bg-card-hover)}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:#2563eb}
+
+/* ─── FILTERS ─── */
+.filters{display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;align-items:center}
+.filter-select{padding:7px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-card);color:var(--text-primary);font-family:var(--font);font-size:.8rem;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%2394a3b8'%3E%3Cpath d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
+.filter-tag{padding:5px 12px;border-radius:20px;background:rgba(59,130,246,.12);color:var(--accent);font-size:.75rem;font-weight:500;display:flex;align-items:center;gap:6px;border:1px solid rgba(59,130,246,.2)}
+.filter-tag .close{cursor:pointer;opacity:.6;font-size:.85rem}
+.filter-tag .close:hover{opacity:1}
+.filter-spacer{flex:1}
+.filter-meta{font-size:.75rem;color:var(--text-muted)}
+
+/* ─── KPI CARDS ─── */
+.kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:24px}
+.kpi-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;position:relative;overflow:hidden;transition:.2s;cursor:pointer}
+.kpi-card:hover{border-color:var(--border-active);transform:translateY(-1px);box-shadow:var(--shadow)}
+.kpi-card .kpi-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:600;margin-bottom:6px}
+.kpi-card .kpi-value{font-size:1.8rem;font-weight:700;letter-spacing:-.03em;line-height:1}
+.kpi-card .kpi-detail{font-size:.72rem;color:var(--text-secondary);margin-top:6px}
+.kpi-card .kpi-delta{font-size:.7rem;font-weight:600;margin-top:4px;display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:4px}
+.kpi-card .kpi-delta.up{color:var(--red);background:var(--red-bg)}
+.kpi-card .kpi-delta.down{color:var(--green);background:var(--green-bg)}
+.kpi-card .kpi-bar{position:absolute;bottom:0;left:0;right:0;height:3px}
+.kpi-card .kpi-bar.blue{background:var(--accent)}
+.kpi-card .kpi-bar.green{background:var(--green)}
+.kpi-card .kpi-bar.red{background:var(--red)}
+.kpi-card .kpi-bar.amber{background:var(--amber)}
+.kpi-card .kpi-bar.purple{background:var(--purple)}
+
+/* ─── ALERT STRIP ─── */
+.alert-strip{display:flex;align-items:center;gap:10px;padding:10px 16px;border-radius:var(--radius-sm);margin-bottom:20px;font-size:.82rem;font-weight:500}
+.alert-strip.critical{background:var(--red-bg);border:1px solid var(--red-border);color:#fca5a5}
+.alert-strip.warning{background:var(--amber-bg);border:1px solid var(--amber-border);color:#fcd34d}
+.alert-strip .alert-icon{font-size:1rem}
+.alert-strip .alert-action{margin-left:auto;font-weight:600;cursor:pointer;color:var(--accent);font-size:.8rem}
+
+/* ─── CHART GRID ─── */
+.chart-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.chart-grid.three{grid-template-columns:1fr 1fr 1fr}
+.chart-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;min-height:260px;transition:.2s}
+.chart-card:hover{border-color:var(--border-active)}
+.chart-card.full{grid-column:1/-1}
+.chart-card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.chart-card-title{font-size:.9rem;font-weight:600}
+.chart-card-meta{font-size:.7rem;color:var(--text-muted)}
+.chart-legend{display:flex;gap:14px;margin-bottom:12px}
+.legend-item{display:flex;align-items:center;gap:5px;font-size:.7rem;color:var(--text-secondary)}
+.legend-dot{width:8px;height:8px;border-radius:2px}
+
+/* ─── HEATMAP ─── */
+.heatmap-table{width:100%;border-collapse:separate;border-spacing:3px}
+.heatmap-table th{font-size:.65rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:600;padding:6px 8px;text-align:center}
+.heatmap-table th:first-child{text-align:left}
+.heatmap-table td{padding:8px;text-align:center;border-radius:var(--radius-sm);font-size:.8rem;font-weight:600;cursor:pointer;transition:.15s}
+.heatmap-table td:first-child{text-align:left;font-weight:500;color:var(--text-secondary);font-size:.78rem}
+.heatmap-table td.met{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.heatmap-table td.breached{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+.heatmap-table td.pending{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}
+.heatmap-table td.na{color:var(--text-muted);font-size:.75rem}
+.heatmap-table td:hover:not(:first-child):not(.na){filter:brightness(1.2);transform:scale(1.03)}
+
+/* ─── TREND CHART (CSS-only bar representation) ─── */
+.trend-bars{display:flex;align-items:flex-end;gap:6px;height:140px;padding-top:10px}
+.trend-bar-group{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px}
+.trend-bar-stack{width:100%;display:flex;flex-direction:column-reverse;gap:1px;border-radius:4px 4px 0 0;overflow:hidden}
+.trend-bar-stack .seg{width:100%;transition:.3s}
+.trend-bar-stack .seg.green{background:var(--green)}
+.trend-bar-stack .seg.red{background:var(--red)}
+.trend-bar-stack .seg.gray{background:#374151}
+.trend-bar-label{font-size:.6rem;color:var(--text-muted);white-space:nowrap}
+
+/* ─── BOTTLENECK FUNNEL ─── */
+.funnel{display:flex;align-items:flex-end;gap:8px;height:120px;padding:0 10px}
+.funnel-step{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px}
+.funnel-bar{width:100%;border-radius:4px 4px 0 0;transition:.3s}
+.funnel-label{font-size:.6rem;color:var(--text-muted);text-align:center}
+.funnel-value{font-size:.75rem;font-weight:700;color:var(--text-primary)}
+
+/* ─── DATA TABLE ─── */
+.data-table-wrapper{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+.data-table-toolbar{display:flex;align-items:center;gap:10px;padding:12px 16px;border-bottom:1px solid var(--border);flex-wrap:wrap}
+.tab-group{display:flex;gap:1px;background:var(--border);border-radius:var(--radius-sm);overflow:hidden}
+.tab-btn{padding:6px 14px;background:var(--bg-card);color:var(--text-secondary);border:none;font-family:var(--font);font-size:.78rem;cursor:pointer;font-weight:500;transition:.15s}
+.tab-btn.active{background:var(--accent);color:#fff}
+.tab-btn:hover:not(.active){color:var(--text-primary)}
+.search-input{padding:7px 12px 7px 32px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-surface);color:var(--text-primary);font-family:var(--font);font-size:.8rem;width:220px;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' fill='%2364748b' viewBox='0 0 24 24'%3E%3Cpath d='M21 21l-5.2-5.2m2.2-5.3a7.5 7.5 0 11-15 0 7.5 7.5 0 0115 0z' stroke='%2364748b' stroke-width='2' fill='none'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:10px center}
+.search-input::placeholder{color:var(--text-muted)}
+.data-table{width:100%;border-collapse:collapse}
+.data-table thead th{padding:10px 14px;text-align:left;font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:600;background:var(--bg-surface);position:sticky;top:0;border-bottom:1px solid var(--border)}
+.data-table tbody tr{border-bottom:1px solid var(--border);cursor:pointer;transition:.1s}
+.data-table tbody tr:hover{background:rgba(255,255,255,.02)}
+.data-table tbody td{padding:10px 14px;font-size:.82rem;vertical-align:middle}
+.data-table .kri-id{font-family:var(--mono);font-weight:600;color:var(--accent);font-size:.78rem}
+.status-chip{display:inline-flex;align-items:center;gap:4px;padding:3px 8px;border-radius:4px;font-size:.7rem;font-weight:600;white-space:nowrap}
+.status-chip.met{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.status-chip.breached{background:var(--red-bg);color:var(--red);border:1px solid var(--red-border)}
+.status-chip.pending{background:var(--amber-bg);color:var(--amber);border:1px solid var(--amber-border)}
+.status-chip.not-started{background:rgba(100,116,139,.1);color:var(--text-muted);border:1px solid rgba(100,116,139,.2)}
+.status-chip .chip-icon{font-size:.65rem}
+.age-badge{font-size:.7rem;font-family:var(--mono);color:var(--text-muted)}
+.age-badge.warn{color:var(--amber)}
+.age-badge.critical{color:var(--red)}
+
+/* ─── RIGHT DRAWER ─── */
+.drawer-overlay{position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:200;opacity:0;pointer-events:none;transition:.3s}
+.drawer-overlay.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:-480px;bottom:0;width:480px;background:var(--bg-surface);border-left:1px solid var(--border);z-index:210;transition:.35s cubic-bezier(.4,0,.2,1);overflow-y:auto;padding:24px}
+.drawer.open{right:0}
+.drawer-close{position:absolute;top:16px;right:16px;width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--bg-card);color:var(--text-secondary);display:flex;align-items:center;justify-content:center;cursor:pointer;font-size:1rem;transition:.15s}
+.drawer-close:hover{background:var(--bg-card-hover);color:var(--text-primary)}
+.drawer-section{margin-bottom:20px}
+.drawer-section-title{font-size:.72rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);font-weight:600;margin-bottom:10px;display:flex;align-items:center;gap:6px}
+.drawer-kri-header{margin-bottom:20px}
+.drawer-kri-name{font-size:1.2rem;font-weight:700;margin-bottom:4px}
+.drawer-kri-meta{font-size:.78rem;color:var(--text-secondary)}
+.drawer-stat-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.drawer-stat{padding:10px;background:var(--bg-card);border-radius:var(--radius-sm);border:1px solid var(--border)}
+.drawer-stat label{font-size:.65rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);display:block;margin-bottom:3px}
+.drawer-stat .val{font-size:1rem;font-weight:700}
+.timeline{position:relative;padding-left:20px}
+.timeline::before{content:'';position:absolute;left:6px;top:4px;bottom:4px;width:1px;background:var(--border)}
+.timeline-item{position:relative;padding-bottom:16px;font-size:.78rem}
+.timeline-item::before{content:'';position:absolute;left:-17px;top:5px;width:9px;height:9px;border-radius:50%;border:2px solid var(--border);background:var(--bg-surface)}
+.timeline-item.active::before{border-color:var(--accent);background:var(--accent)}
+.timeline-item.done::before{border-color:var(--green);background:var(--green)}
+.timeline-item .tl-title{font-weight:600;margin-bottom:2px}
+.timeline-item .tl-meta{color:var(--text-muted);font-size:.7rem}
+
+/* ─── APPROVAL CARD ─── */
+.approval-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin-bottom:12px;transition:.2s}
+.approval-card:hover{border-color:var(--border-active)}
+.approval-card-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.approval-progress{display:flex;align-items:center;gap:0;margin:10px 0}
+.approval-step{display:flex;align-items:center;gap:0}
+.approval-dot{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.7rem;font-weight:700;border:2px solid var(--border);background:var(--bg-surface);color:var(--text-muted);position:relative}
+.approval-dot.done{border-color:var(--green);background:var(--green);color:#fff}
+.approval-dot.current{border-color:var(--accent);background:var(--accent-glow);color:var(--accent);animation:pulse-dot 2s infinite}
+.approval-dot.pending{border-color:var(--border)}
+.approval-line{width:60px;height:2px;background:var(--border)}
+.approval-line.done{background:var(--green)}
+.approval-labels{display:flex;gap:0;margin-top:4px}
+.approval-label{font-size:.6rem;color:var(--text-muted);width:28px;text-align:center}
+@keyframes pulse-dot{0%,100%{box-shadow:0 0 0 0 rgba(59,130,246,.3)}50%{box-shadow:0 0 0 6px rgba(59,130,246,0)}}
+
+/* ─── INSIGHTS PAGE ─── */
+.insight-card{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;margin-bottom:14px}
+.insight-card-header{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.insight-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:1rem}
+.insight-icon.trend{background:rgba(59,130,246,.1);color:var(--accent)}
+.insight-icon.alert{background:var(--red-bg);color:var(--red)}
+.insight-icon.perf{background:var(--green-bg);color:var(--green)}
+.insight-icon.warn{background:var(--amber-bg);color:var(--amber)}
+.insight-title{font-weight:600;font-size:.9rem}
+.insight-body{font-size:.82rem;color:var(--text-secondary);line-height:1.6}
+.insight-tags{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.insight-tag{font-size:.65rem;padding:3px 8px;border-radius:4px;background:rgba(255,255,255,.04);color:var(--text-muted);border:1px solid var(--border)}
+
+/* ─── EVIDENCE VAULT ─── */
+.evidence-summary{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px}
+.evidence-stat{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 16px}
+.evidence-stat .es-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text-muted);margin-bottom:4px}
+.evidence-stat .es-val{font-size:1.4rem;font-weight:700}
+
+/* ─── WIZARD ─── */
+.wizard-steps{display:flex;gap:0;margin-bottom:28px;position:relative}
+.wizard-step{flex:1;display:flex;flex-direction:column;align-items:center;position:relative}
+.wizard-step-dot{width:32px;height:32px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;background:var(--bg-surface);color:var(--text-muted);z-index:2;transition:.2s}
+.wizard-step.done .wizard-step-dot{border-color:var(--green);background:var(--green);color:#fff}
+.wizard-step.active .wizard-step-dot{border-color:var(--accent);background:var(--accent);color:#fff}
+.wizard-step-label{font-size:.65rem;color:var(--text-muted);margin-top:6px;text-align:center}
+.wizard-step.active .wizard-step-label{color:var(--accent);font-weight:600}
+.wizard-step.done .wizard-step-label{color:var(--green)}
+.wizard-connector{position:absolute;top:15px;left:calc(50% + 20px);right:calc(-50% + 20px);height:2px;background:var(--border)}
+.wizard-step.done .wizard-connector{background:var(--green)}
+.wizard-form{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:24px;max-width:640px}
+.form-group{margin-bottom:16px}
+.form-label{display:block;font-size:.75rem;font-weight:600;color:var(--text-secondary);margin-bottom:5px}
+.form-input{width:100%;padding:9px 12px;border-radius:var(--radius-sm);border:1px solid var(--border);background:var(--bg-surface);color:var(--text-primary);font-family:var(--font);font-size:.85rem}
+.form-input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-glow)}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.form-hint{font-size:.7rem;color:var(--text-muted);margin-top:3px}
+
+/* ─── EXCEPTION TABLE ─── */
+.exception-list{display:flex;flex-direction:column;gap:0}
+.exception-item{display:flex;align-items:center;gap:12px;padding:10px 4px;border-bottom:1px solid var(--border);font-size:.82rem}
+.exception-rank{width:20px;font-size:.75rem;font-weight:700;color:var(--text-muted);text-align:center}
+.exception-kri{font-family:var(--mono);font-weight:600;color:var(--accent);font-size:.78rem;width:60px}
+.exception-title{flex:1;color:var(--text-secondary)}
+.exception-badges{display:flex;gap:4px}
+
+/* ─── DECISION BOARD ─── */
+.decision-strip{background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius);padding:12px 16px;margin-bottom:20px;display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.decision-item{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--radius-sm);background:rgba(255,255,255,.03);border:1px solid var(--border);cursor:pointer;font-size:.78rem;transition:.15s}
+.decision-item:hover{border-color:var(--accent);background:var(--accent-glow)}
+
+/* ─── PAGE VIEWS (toggle) ─── */
+.page-view{display:none}
+.page-view.active{display:block}
+
+/* ─── RESPONSIVE ─── */
+@media(max-width:1200px){.kpi-row{grid-template-columns:repeat(3,1fr)}.chart-grid{grid-template-columns:1fr}}
+@media(max-width:900px){
+  .sidebar{transform:translateX(-100%);transition:.3s}.sidebar.open{transform:translateX(0)}
+  .main{margin-left:0}
+  .kpi-row{grid-template-columns:repeat(2,1fr)}
+  .header-badges,.header-meta{display:none}
+}
+
+/* ─── SCROLLBAR ─── */
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:transparent}
+::-webkit-scrollbar-thumb{background:#334155;border-radius:3px}
+
+/* ─── ACCESSIBILITY: Focus visible ─── */
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ─── SKIP LINK ─── */
+.skip-link{position:absolute;top:-100px;left:16px;padding:8px 16px;background:var(--accent);color:#fff;border-radius:var(--radius-sm);z-index:9999;font-size:.85rem}
+.skip-link:focus{top:8px}
+
+/* ─── ANIMATIONS ─── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+.fade-up{animation:fadeUp .4s ease both}
+.delay-1{animation-delay:.05s}.delay-2{animation-delay:.1s}.delay-3{animation-delay:.15s}.delay-4{animation-delay:.2s}.delay-5{animation-delay:.25s}
+
+/* ─── RAG DONUT (CSS only) ─── */
+.rag-donut{width:100px;height:100px;border-radius:50%;background:conic-gradient(var(--green) 0% 4%,var(--red) 4% 87%,#374151 87% 100%);display:flex;align-items:center;justify-content:center;margin:10px auto}
+.rag-donut-inner{width:64px;height:64px;border-radius:50%;background:var(--bg-card);display:flex;align-items:center;justify-content:center;font-size:.75rem;font-weight:700;color:var(--text-primary)}
+
+/* Cycle time sparkline (CSS) */
+.spark-bars{display:flex;align-items:flex-end;gap:2px;height:40px}
+.spark-bar{width:6px;border-radius:2px 2px 0 0;transition:.3s}
+</style>
+</head>
+<body>
+
+<a href="#main-content" class="skip-link">Skip to main content</a>
+
+<!-- ═══ HEADER ═══ -->
+<header class="header" role="banner">
+  <div class="header-logo">
+    <div class="icon">B&I</div>
+    <span>Data Metrics & Controls</span>
+  </div>
+  <nav class="header-nav" role="tablist" aria-label="Role switcher">
+    <button class="active" role="tab" aria-selected="true" onclick="switchRole(this)">Management</button>
+    <button role="tab" onclick="switchRole(this)">L1 Approver</button>
+    <button role="tab" onclick="switchRole(this)">L2 Approver</button>
+    <button role="tab" onclick="switchRole(this)">L3 / Admin</button>
+  </nav>
+  <div class="header-badges">
+    <span class="badge red" aria-label="20 KRIs breached">✕ 20 Breached</span>
+    <span class="badge amber" aria-label="7 pending approvals">⏳ 7 Pending</span>
+    <span class="badge green" aria-label="1 SLA met">✓ 1 SLA Met</span>
+  </div>
+  <span class="header-meta">GB-TIB · Mar 2026</span>
+  <div class="header-avatar" title="Rahul Anreddy" aria-label="User profile">RA</div>
+</header>
+
+<!-- ═══ SIDEBAR ═══ -->
+<nav class="sidebar" role="navigation" aria-label="Main navigation">
+  <div class="sidebar-section">
+    <div class="sidebar-label">Overview</div>
+    <div class="sidebar-item active" onclick="showPage('dashboard',this)" tabindex="0" role="link">
+      <span class="icon">📊</span> Executive Command Center
+    </div>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-label">Controls & KRIs</div>
+    <div class="sidebar-item" onclick="showPage('data-control',this)" tabindex="0" role="link">
+      <span class="icon">📋</span> Data Control Workbench <span class="count">20</span>
+    </div>
+    <div class="sidebar-item" onclick="showPage('kri-explorer',this)" tabindex="0" role="link">
+      <span class="icon">🔍</span> KRI Explorer
+    </div>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-label">Operations</div>
+    <div class="sidebar-item" onclick="showPage('approvals',this)" tabindex="0" role="link">
+      <span class="icon">🔔</span> Approvals Queue <span class="count amber">7</span>
+    </div>
+    <div class="sidebar-item" onclick="showPage('maker-checker',this)" tabindex="0" role="link">
+      <span class="icon">📝</span> Maker-Checker Flow
+    </div>
+    <div class="sidebar-item" onclick="showPage('variance',this)" tabindex="0" role="link">
+      <span class="icon">📈</span> Variance Control
+    </div>
+    <div class="sidebar-item" onclick="showPage('evidence',this)" tabindex="0" role="link">
+      <span class="icon">🗂️</span> Evidence Vault
+    </div>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-label">Insights</div>
+    <div class="sidebar-item" onclick="showPage('insights',this)" tabindex="0" role="link">
+      <span class="icon">💡</span> Trends & Forecasts
+    </div>
+    <div class="sidebar-item" onclick="showPage('bottlenecks',this)" tabindex="0" role="link">
+      <span class="icon">⏱️</span> Bottlenecks & Cycle Time
+    </div>
+  </div>
+  <div class="sidebar-section">
+    <div class="sidebar-label">Admin</div>
+    <div class="sidebar-item" onclick="showPage('onboarding',this)" tabindex="0" role="link">
+      <span class="icon">⚙️</span> KRI Onboarding Wizard
+    </div>
+    <div class="sidebar-item" onclick="showPage('roles',this)" tabindex="0" role="link">
+      <span class="icon">👥</span> Role Management
+    </div>
+    <div class="sidebar-item" onclick="showPage('monitoring',this)" tabindex="0" role="link">
+      <span class="icon">🖥️</span> Monitoring
+    </div>
+  </div>
+  <div class="sidebar-user">
+    <div class="header-avatar" style="width:28px;height:28px;font-size:.6rem">RA</div>
+    <div class="sidebar-user-info">Rahul Anreddy<span>Management · UK</span></div>
+  </div>
+</nav>
+
+<!-- ═══ MAIN CONTENT ═══ -->
+<main class="main" id="main-content">
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 1: EXECUTIVE COMMAND CENTER (Dashboard)
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="page-view active" id="page-dashboard">
+
+  <div class="role-banner fade-up">
+    <span class="dot"></span>
+    <span><strong>Management View</strong> — Executive overview · Strategic charts · All regions</span>
+  </div>
+
+  <div class="page-header fade-up delay-1">
+    <div>
+      <h1 class="page-title">Executive Command Center</h1>
+      <p class="page-subtitle">B&I Data Metrics & Controls · March 2026 · GB-TIB · Real data from BIC system</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn">⬇ PDF</button>
+      <button class="btn">🔄 Refresh</button>
+    </div>
+  </div>
+
+  <div class="filters fade-up delay-2">
+    <label class="form-label" style="margin:0;line-height:2" for="period-select">Period</label>
+    <select class="filter-select" id="period-select"><option>March 2026</option><option>February 2026</option><option>January 2026</option></select>
+    <select class="filter-select" aria-label="Region"><option>All Regions</option><option>UK</option><option>SGP</option><option>CEP</option></select>
+    <div class="filter-tag">GB-TIB <span class="close" aria-label="Remove filter">✕</span></div>
+    <div class="filter-spacer"></div>
+    <span class="filter-meta">Last updated: 31 Mar 2026 09:00</span>
+  </div>
+
+  <!-- Alert -->
+  <div class="alert-strip critical fade-up delay-2" role="alert">
+    <span class="alert-icon">🚨</span>
+    <span><strong>20 of 24 KRIs have SLA Breached</strong> — Data not received from Genesis, S2, Optima, DCRM by deadline. 7 L1 approvals pending.</span>
+    <span class="alert-action" onclick="showPage('data-control',document.querySelectorAll('.sidebar-item')[2])">View KRIs →</span>
+  </div>
+
+  <!-- KPI Cards -->
+  <div class="kpi-row fade-up delay-3">
+    <div class="kpi-card" onclick="showPage('kri-explorer',document.querySelectorAll('.sidebar-item')[3])">
+      <div class="kpi-label">Total KRIs</div>
+      <div class="kpi-value">24</div>
+      <div class="kpi-detail">UK · SGP · CEP — Active Framework</div>
+      <div class="kpi-bar blue"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">SLA Met</div>
+      <div class="kpi-value" style="color:var(--green)">1</div>
+      <div class="kpi-detail">4% of total</div>
+      <div class="kpi-delta down">▼ -7% vs Feb 2026</div>
+      <div class="kpi-bar green"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">SLA Breached</div>
+      <div class="kpi-value" style="color:var(--red)">20</div>
+      <div class="kpi-detail">83% — Data not received</div>
+      <div class="kpi-delta up">▲ +3 vs Feb — Critical</div>
+      <div class="kpi-bar red"></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Not Started</div>
+      <div class="kpi-value">3</div>
+      <div class="kpi-detail">13% — SLA window open</div>
+      <div class="kpi-bar amber"></div>
+    </div>
+    <div class="kpi-card" onclick="showPage('approvals',document.querySelectorAll('.sidebar-item')[5])">
+      <div class="kpi-label">Pending Approvals</div>
+      <div class="kpi-value" style="color:var(--amber)">7</div>
+      <div class="kpi-detail">L1 approvals required</div>
+      <div class="kpi-delta up">▲ All SLA Breached KRIs</div>
+      <div class="kpi-bar purple"></div>
+    </div>
+  </div>
+
+  <!-- Decision Board Strip -->
+  <div class="decision-strip fade-up delay-3">
+    <span style="font-size:.78rem;color:var(--text-muted);font-weight:600">⚡ Quick Actions:</span>
+    <div class="decision-item" onclick="showPage('approvals',document.querySelectorAll('.sidebar-item')[5])">✓ Approve Exception UK-K29</div>
+    <div class="decision-item">👤 Allocate Reviewer to UK-K40</div>
+    <div class="decision-item" onclick="showPage('evidence',document.querySelectorAll('.sidebar-item')[8])">📎 Upload Missing Evidence (5)</div>
+    <div class="decision-item">📧 Send Nudge to Data Providers</div>
+  </div>
+
+  <!-- Charts Row 1 -->
+  <div class="chart-grid fade-up delay-4">
+    <!-- RAG Heatmap -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div>
+          <div class="chart-card-title">🗺️ Compliance Heatmap</div>
+          <div class="chart-card-meta">Category × Control Dimension · March 2026 · Click any cell to cross-filter</div>
+        </div>
+      </div>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> Met</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div> Pending</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Breached</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#374151"></div> N/A</div>
+      </div>
+      <table class="heatmap-table" role="grid" aria-label="Compliance heatmap">
+        <thead><tr><th>Category</th><th>SLA</th><th>C&A</th><th>Mat. Prep</th><th>Variance</th><th>Reviews</th><th>Adj.</th><th>Ch. Gov</th></tr></thead>
+        <tbody>
+          <tr><td>Prod & Agg DQ</td><td class="breached">✕ 8</td><td class="pending">⏳ 3</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td></tr>
+          <tr><td>Report Accuracy</td><td class="breached">✕ 8</td><td class="pending">⏳ 4</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td></tr>
+          <tr><td>Data Governance</td><td class="breached">✕ 4</td><td class="met">✓ 1</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td><td class="na">—</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:10px;padding:8px 12px;background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--radius-sm);font-size:.75rem;color:#fcd34d">
+        ⚠ All 3 categories show SLA Breached. 7 KRIs have C&A pending L1 approval.
+      </div>
+    </div>
+
+    <!-- Top Exceptions -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div>
+          <div class="chart-card-title">🚨 Top Exceptions</div>
+          <div class="chart-card-meta">Immediate action required · SLA Breached · Ranked by business impact</div>
+        </div>
+        <span style="font-size:.7rem;color:var(--red);font-weight:600">20 Critical</span>
+      </div>
+      <div class="exception-list">
+        <div class="exception-item" onclick="openDrawer()"><span class="exception-rank">1</span><span class="exception-kri">UK-K29</span><span class="exception-title">Data Concerns – Count – All Reports</span><div class="exception-badges"><span class="status-chip breached"><span class="chip-icon">✕</span> Breached</span><span class="status-chip pending"><span class="chip-icon">⏳</span> L1</span></div></div>
+        <div class="exception-item"><span class="exception-rank">2</span><span class="exception-kri">UK-K40</span><span class="exception-title">Data Concerns – Compensating Measures</span><div class="exception-badges"><span class="status-chip breached"><span class="chip-icon">✕</span> Breached</span><span class="status-chip pending"><span class="chip-icon">⏳</span> L1</span></div></div>
+        <div class="exception-item"><span class="exception-rank">3</span><span class="exception-kri">UK-K41</span><span class="exception-title">Data Concerns – SLA</span><div class="exception-badges"><span class="status-chip breached"><span class="chip-icon">✕</span> Breached</span><span class="status-chip pending"><span class="chip-icon">⏳</span> L1</span></div></div>
+        <div class="exception-item"><span class="exception-rank">4</span><span class="exception-kri">UK-K42</span><span class="exception-title">Data Concerns – Remediation Delivery</span><div class="exception-badges"><span class="status-chip breached"><span class="chip-icon">✕</span> Breached</span></div></div>
+        <div class="exception-item"><span class="exception-rank">5</span><span class="exception-kri">UK-K02</span><span class="exception-title">CDE Data Quality in Genesis</span><div class="exception-badges"><span class="status-chip breached"><span class="chip-icon">✕</span> Breached</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Charts Row 2: Trends -->
+  <div class="chart-grid fade-up delay-5">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div>
+          <div class="chart-card-title">📈 SLA Compliance Trend — 6 Months</div>
+          <div class="chart-card-meta">KRI count by status per month · Oct 2025 – Mar 2026</div>
+        </div>
+      </div>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> SLA Met</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> SLA Breached</div>
+        <div class="legend-item"><div class="legend-dot" style="background:#374151"></div> Not Started</div>
+      </div>
+      <div class="trend-bars">
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:40px"></div><div class="seg red" style="height:16px"></div><div class="seg gray" style="height:32px"></div></div><div class="trend-bar-label">Oct 25</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:52px"></div><div class="seg red" style="height:20px"></div><div class="seg gray" style="height:28px"></div></div><div class="trend-bar-label">Nov 25</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:48px"></div><div class="seg red" style="height:28px"></div><div class="seg gray" style="height:24px"></div></div><div class="trend-bar-label">Dec 25</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:44px"></div><div class="seg red" style="height:36px"></div><div class="seg gray" style="height:20px"></div></div><div class="trend-bar-label">Jan 26</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:28px"></div><div class="seg red" style="height:56px"></div><div class="seg gray" style="height:16px"></div></div><div class="trend-bar-label">Feb 26</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:8px"></div><div class="seg red" style="height:96px"></div><div class="seg gray" style="height:16px"></div></div><div class="trend-bar-label">Mar 26</div></div>
+      </div>
+    </div>
+
+    <!-- Bottleneck Funnel -->
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div>
+          <div class="chart-card-title">🔻 Approval Bottleneck Funnel</div>
+          <div class="chart-card-meta">Average days per stage · Rework rate highlighted</div>
+        </div>
+      </div>
+      <div class="funnel">
+        <div class="funnel-step"><div class="funnel-value">24</div><div class="funnel-bar" style="height:100px;background:var(--accent)"></div><div class="funnel-label">Submitted</div></div>
+        <div class="funnel-step"><div class="funnel-value">18</div><div class="funnel-bar" style="height:75px;background:#6366f1"></div><div class="funnel-label">L1 Review<br><span style="color:var(--amber);font-weight:600">2.4d avg</span></div></div>
+        <div class="funnel-step"><div class="funnel-value">12</div><div class="funnel-bar" style="height:50px;background:#8b5cf6"></div><div class="funnel-label">L2 Review<br><span style="color:var(--amber);font-weight:600">1.8d avg</span></div></div>
+        <div class="funnel-step"><div class="funnel-value">8</div><div class="funnel-bar" style="height:33px;background:#a78bfa"></div><div class="funnel-label">L3 Final<br><span style="color:var(--green);font-weight:600">0.5d avg</span></div></div>
+        <div class="funnel-step"><div class="funnel-value">6</div><div class="funnel-bar" style="height:25px;background:var(--green)"></div><div class="funnel-label">Closed</div></div>
+      </div>
+      <div style="margin-top:12px;font-size:.72rem;color:var(--amber);display:flex;align-items:center;gap:6px">⚠ 33% rework rate at L1 stage — primary bottleneck</div>
+    </div>
+  </div>
+
+  <!-- Charts Row 3: Evidence & Aging -->
+  <div class="chart-grid fade-up delay-5">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div>
+          <div class="chart-card-title">📎 Evidence Completeness Tree</div>
+          <div class="chart-card-meta">Entity → KRI → Control · One-click to missing items</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:10px">
+        <div style="background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:1.3rem;font-weight:700;color:var(--red)">68%</div>
+          <div style="font-size:.7rem;color:var(--text-muted);margin-top:2px">Complete</div>
+          <div style="font-size:.65rem;color:var(--red);margin-top:4px">32 items missing</div>
+        </div>
+        <div style="background:var(--amber-bg);border:1px solid var(--amber-border);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:1.3rem;font-weight:700;color:var(--amber)">12</div>
+          <div style="font-size:.7rem;color:var(--text-muted);margin-top:2px">Aging 30+ days</div>
+          <div style="font-size:.65rem;color:var(--amber);margin-top:4px">Action required</div>
+        </div>
+        <div style="background:var(--green-bg);border:1px solid var(--green-border);border-radius:var(--radius-sm);padding:12px;text-align:center">
+          <div style="font-size:1.3rem;font-weight:700;color:var(--green)">V3</div>
+          <div style="font-size:.7rem;color:var(--text-muted);margin-top:2px">Avg version</div>
+          <div style="font-size:.65rem;color:var(--green);margin-top:4px">History browsable</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div>
+          <div class="chart-card-title">⏰ Exception Aging Distribution</div>
+          <div class="chart-card-meta">Breached KRIs by age bucket</div>
+        </div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:16px;height:140px;padding-top:10px;justify-content:center">
+        <div style="text-align:center"><div style="width:48px;background:var(--green);border-radius:4px 4px 0 0;height:20px"></div><div style="font-size:.65rem;color:var(--text-muted);margin-top:4px">0–7d</div><div style="font-size:.75rem;font-weight:700">2</div></div>
+        <div style="text-align:center"><div style="width:48px;background:var(--amber);border-radius:4px 4px 0 0;height:50px"></div><div style="font-size:.65rem;color:var(--text-muted);margin-top:4px">8–30d</div><div style="font-size:.75rem;font-weight:700">6</div></div>
+        <div style="text-align:center"><div style="width:48px;background:#f97316;border-radius:4px 4px 0 0;height:80px"></div><div style="font-size:.65rem;color:var(--text-muted);margin-top:4px">31–60d</div><div style="font-size:.75rem;font-weight:700">8</div></div>
+        <div style="text-align:center"><div style="width:48px;background:var(--red);border-radius:4px 4px 0 0;height:60px"></div><div style="font-size:.65rem;color:var(--text-muted);margin-top:4px">60+d</div><div style="font-size:.75rem;font-weight:700">4</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 2: DATA CONTROL WORKBENCH
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="page-view" id="page-data-control">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">Data Control Workbench</h1>
+      <p class="page-subtitle">KRI status tracking · March 2026 · All 7 control dimensions</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn">⬇ Excel</button>
+      <button class="btn">📄 PDF</button>
+    </div>
+  </div>
+
+  <div class="data-table-wrapper">
+    <div class="data-table-toolbar">
+      <div class="tab-group">
+        <button class="tab-btn active">Data Provider SLA</button>
+        <button class="tab-btn">C&A</button>
+        <button class="tab-btn">Material Prep</button>
+        <button class="tab-btn">Variance</button>
+        <button class="tab-btn">Reviews</button>
+        <button class="tab-btn">Adj. Tracking</button>
+        <button class="tab-btn">Ch. Governance</button>
+      </div>
+      <div class="filter-spacer"></div>
+      <input type="search" class="search-input" placeholder="Search KRI..." aria-label="Search KRIs">
+      <div class="chart-legend" style="margin:0">
+        <div class="legend-item"><div class="legend-dot" style="background:var(--green)"></div> SLA Met</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Breached</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--amber)"></div> Pending</div>
+      </div>
+    </div>
+    <div style="overflow-x:auto">
+    <table class="data-table" role="grid" aria-label="KRI data control grid">
+      <thead>
+        <tr>
+          <th style="width:30px"><input type="checkbox" aria-label="Select all"></th>
+          <th>KRI ID</th>
+          <th>KRI Title</th>
+          <th>Source</th>
+          <th>SLA End</th>
+          <th>Data Provider SLA</th>
+          <th>C&A</th>
+          <th>Material Prep</th>
+          <th>Variance</th>
+          <th>Age</th>
+          <th>Owner</th>
+          <th>Evidence</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr onclick="openDrawer()">
+          <td><input type="checkbox" aria-label="Select UK-K01"></td>
+          <td class="kri-id">UK-K01</td>
+          <td>CDE Data Quality in Olympus</td>
+          <td><span style="font-family:var(--mono);font-size:.72rem;padding:2px 6px;background:rgba(59,130,246,.1);border-radius:3px;color:var(--accent)">Olympus</span></td>
+          <td>Day 15</td>
+          <td><span class="status-chip met"><span class="chip-icon">✓</span> SLA Met</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td class="age-badge">15d</td>
+          <td style="font-size:.78rem">V. Avireddy</td>
+          <td><span style="color:var(--green);font-size:.75rem">📎 3</span></td>
+          <td><button class="btn" style="padding:4px 8px;font-size:.7rem">⋮</button></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" aria-label="Select UK-K02"></td>
+          <td class="kri-id">UK-K02</td>
+          <td>CDE Data Quality in Genesis</td>
+          <td><span style="font-family:var(--mono);font-size:.72rem;padding:2px 6px;background:rgba(239,68,68,.1);border-radius:3px;color:var(--red)">Genesis</span></td>
+          <td>Day 15</td>
+          <td><span class="status-chip breached"><span class="chip-icon">✕</span> Breached</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td class="age-badge critical">15d</td>
+          <td style="font-size:.78rem">O. Adesanya</td>
+          <td><span style="color:var(--red);font-size:.75rem">📎 0</span></td>
+          <td><button class="btn" style="padding:4px 8px;font-size:.7rem">⋮</button></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox" aria-label="Select UK-K03"></td>
+          <td class="kri-id">UK-K03</td>
+          <td>T1 P&L Adjustments</td>
+          <td><span style="font-family:var(--mono);font-size:.72rem;padding:2px 6px;background:rgba(239,68,68,.1);border-radius:3px;color:var(--red)">S2</span></td>
+          <td>Day 26</td>
+          <td><span class="status-chip breached"><span class="chip-icon">✕</span> Breached</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td class="age-badge warn">5d</td>
+          <td style="font-size:.78rem">T. Shah</td>
+          <td><span style="color:var(--red);font-size:.75rem">📎 0</span></td>
+          <td><button class="btn" style="padding:4px 8px;font-size:.7rem">⋮</button></td>
+        </tr>
+        <tr>
+          <td><input type="checkbox"></td>
+          <td class="kri-id">UK-K04</td>
+          <td>Contractual Balance Coverage</td>
+          <td><span style="font-family:var(--mono);font-size:.72rem;padding:2px 6px;background:rgba(239,68,68,.1);border-radius:3px;color:var(--red)">Genesis</span></td>
+          <td>Day 26</td>
+          <td><span class="status-chip breached"><span class="chip-icon">✕</span> Breached</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td><span class="status-chip not-started">— Not Started</span></td>
+          <td class="age-badge warn">5d</td>
+          <td style="font-size:.78rem">V. Avireddy</td>
+          <td><span style="color:var(--red);font-size:.75rem">📎 0</span></td>
+          <td><button class="btn" style="padding:4px 8px;font-size:.7rem">⋮</button></td>
+        </tr>
+      </tbody>
+    </table>
+    </div>
+    <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:.75rem;color:var(--text-muted)">
+      <span>Showing 1–4 of 24 KRIs</span>
+      <div style="display:flex;gap:4px">
+        <button class="btn" style="padding:4px 10px;font-size:.72rem">← Prev</button>
+        <button class="btn" style="padding:4px 10px;font-size:.72rem">Next →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 3: APPROVALS QUEUE
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="page-view" id="page-approvals">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">🔔 Pending Approvals</h1>
+      <p class="page-subtitle">7 items · March 2026 · All SLA Breached</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn">Bulk Approve Selected</button>
+      <button class="btn">Nudge All</button>
+    </div>
+  </div>
+
+  <div class="alert-strip warning" role="alert">
+    <span class="alert-icon">⚠</span>
+    <span>7 KRIs have C&A pending L1 approval. All are SLA Breached. Immediate review required.</span>
+  </div>
+
+  <!-- Approval Cards -->
+  <div class="approval-card">
+    <div class="approval-card-header">
+      <span class="kri-id" style="font-size:.9rem">UK-K29</span>
+      <span class="status-chip breached"><span class="chip-icon">✕</span> SLA Breached</span>
+      <span class="status-chip pending"><span class="chip-icon">⏳</span> L1 Pending</span>
+      <span style="margin-left:auto;font-size:.75rem;color:var(--text-muted)">Report Accuracy</span>
+    </div>
+    <div style="font-size:.85rem;font-weight:500;margin-bottom:2px">Data Concerns – Count – All Reports</div>
+    <div style="font-size:.75rem;color:var(--text-secondary);margin-bottom:12px">Control: Completeness & Accuracy · Source: DCRM · SLA End: Day 2</div>
+    <div class="approval-progress">
+      <div class="approval-step"><div class="approval-dot current">1</div><div class="approval-line"></div></div>
+      <div class="approval-step"><div class="approval-dot pending">2</div><div class="approval-line"></div></div>
+      <div class="approval-step"><div class="approval-dot pending">3</div></div>
+    </div>
+    <div style="display:flex;gap:4px;margin-top:4px;margin-bottom:12px">
+      <span style="font-size:.6rem;color:var(--accent);width:88px;text-align:center">L1 Review</span>
+      <span style="font-size:.6rem;color:var(--text-muted);width:88px;text-align:center">L2 Review</span>
+      <span style="font-size:.6rem;color:var(--text-muted);text-align:center">L3 Final</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="font-size:.78rem">✓ Approve → L2</button>
+      <button class="btn" style="font-size:.78rem;border-color:var(--red);color:var(--red)">✕ Reject</button>
+      <button class="btn" style="font-size:.78rem">👁 Evidence</button>
+    </div>
+  </div>
+
+  <div class="approval-card">
+    <div class="approval-card-header">
+      <span class="kri-id" style="font-size:.9rem">UK-K40</span>
+      <span class="status-chip breached"><span class="chip-icon">✕</span> SLA Breached</span>
+      <span class="status-chip pending"><span class="chip-icon">⏳</span> L1 Pending</span>
+      <span style="margin-left:auto;font-size:.75rem;color:var(--text-muted)">Data Governance</span>
+    </div>
+    <div style="font-size:.85rem;font-weight:500;margin-bottom:2px">Data Concerns – Compensating Measures</div>
+    <div style="font-size:.75rem;color:var(--text-secondary);margin-bottom:12px">Control: Completeness & Accuracy · Source: DCRM · SLA End: Day 2</div>
+    <div class="approval-progress">
+      <div class="approval-step"><div class="approval-dot current">1</div><div class="approval-line"></div></div>
+      <div class="approval-step"><div class="approval-dot pending">2</div><div class="approval-line"></div></div>
+      <div class="approval-step"><div class="approval-dot pending">3</div></div>
+    </div>
+    <div style="display:flex;gap:4px;margin-top:4px;margin-bottom:12px">
+      <span style="font-size:.6rem;color:var(--accent);width:88px;text-align:center">L1 Review</span>
+      <span style="font-size:.6rem;color:var(--text-muted);width:88px;text-align:center">L2 Review</span>
+      <span style="font-size:.6rem;color:var(--text-muted);text-align:center">L3 Final</span>
+    </div>
+    <div style="display:flex;gap:8px">
+      <button class="btn btn-primary" style="font-size:.78rem">✓ Approve → L2</button>
+      <button class="btn" style="font-size:.78rem;border-color:var(--red);color:var(--red)">✕ Reject</button>
+      <button class="btn" style="font-size:.78rem">👁 Evidence</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 4: INSIGHTS — Trends & Forecasts
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="page-view" id="page-insights">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">💡 Trends & Forecasts</h1>
+      <p class="page-subtitle">AI-generated insights · Pattern recognition across KRIs · Historical analysis</p>
+    </div>
+  </div>
+
+  <div class="chart-grid" style="margin-bottom:20px">
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div>
+          <div class="chart-card-title">📉 SLA Compliance Trajectory</div>
+          <div class="chart-card-meta">12-month trend with forecast</div>
+        </div>
+      </div>
+      <div class="trend-bars" style="height:120px">
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:80px"></div><div class="seg red" style="height:8px"></div></div><div class="trend-bar-label">Apr 25</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:72px"></div><div class="seg red" style="height:12px"></div></div><div class="trend-bar-label">May</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:64px"></div><div class="seg red" style="height:20px"></div></div><div class="trend-bar-label">Jun</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:56px"></div><div class="seg red" style="height:28px"></div></div><div class="trend-bar-label">Jul</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:48px"></div><div class="seg red" style="height:28px"></div></div><div class="trend-bar-label">Aug</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:52px"></div><div class="seg red" style="height:24px"></div></div><div class="trend-bar-label">Sep</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:40px"></div><div class="seg red" style="height:16px"></div></div><div class="trend-bar-label">Oct</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:52px"></div><div class="seg red" style="height:20px"></div></div><div class="trend-bar-label">Nov</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:48px"></div><div class="seg red" style="height:28px"></div></div><div class="trend-bar-label">Dec</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:44px"></div><div class="seg red" style="height:36px"></div></div><div class="trend-bar-label">Jan 26</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:28px"></div><div class="seg red" style="height:56px"></div></div><div class="trend-bar-label">Feb</div></div>
+        <div class="trend-bar-group"><div class="trend-bar-stack"><div class="seg green" style="height:8px"></div><div class="seg red" style="height:96px"></div></div><div class="trend-bar-label">Mar</div></div>
+      </div>
+    </div>
+    <div class="chart-card">
+      <div class="chart-card-header">
+        <div>
+          <div class="chart-card-title">🔴 RAG Delta vs Prior Month</div>
+          <div class="chart-card-meta">Direction of change by KRI · Feb → Mar 2026</div>
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-top:20px">
+        <div style="text-align:center;padding:16px;background:var(--red-bg);border:1px solid var(--red-border);border-radius:var(--radius-sm)">
+          <div style="font-size:2rem;font-weight:700;color:var(--red)">14</div>
+          <div style="font-size:.72rem;color:var(--text-muted)">Worsened</div>
+        </div>
+        <div style="text-align:center;padding:16px;background:rgba(100,116,139,.05);border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <div style="font-size:2rem;font-weight:700;color:var(--text-muted)">8</div>
+          <div style="font-size:.72rem;color:var(--text-muted)">Unchanged</div>
+        </div>
+        <div style="text-align:center;padding:16px;background:var(--green-bg);border:1px solid var(--green-border);border-radius:var(--radius-sm)">
+          <div style="font-size:2rem;font-weight:700;color:var(--green)">2</div>
+          <div style="font-size:.72rem;color:var(--text-muted)">Improved</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2 style="font-size:1.1rem;font-weight:600;margin-bottom:14px">🔎 Key Findings</h2>
+
+  <div class="insight-card">
+    <div class="insight-card-header">
+      <div class="insight-icon alert">📉</div>
+      <div>
+        <div class="insight-title">Systemic Data Provider Failure — Genesis & DCRM</div>
+        <div style="font-size:.72rem;color:var(--text-muted)">Detected: 16 Mar 2026 · Affects 18 KRIs across all regions</div>
+      </div>
+    </div>
+    <div class="insight-body">SLA breach rate increased from 71% to 83% month-over-month, driven primarily by data non-receipt from Genesis (5 KRIs) and DCRM (13 KRIs). This is a 3-month worsening trend that correlates with the Q1 system migration. Recommend escalation to platform engineering team and interim manual data submission process.</div>
+    <div class="insight-tags">
+      <span class="insight-tag">Root Cause: System Migration</span>
+      <span class="insight-tag">Impact: High</span>
+      <span class="insight-tag">Genesis</span>
+      <span class="insight-tag">DCRM</span>
+    </div>
+  </div>
+
+  <div class="insight-card">
+    <div class="insight-card-header">
+      <div class="insight-icon warn">⏱️</div>
+      <div>
+        <div class="insight-title">L1 Approval Bottleneck — 33% Rework Rate</div>
+        <div style="font-size:.72rem;color:var(--text-muted)">Pattern: Last 3 months · Affects C&A workflow</div>
+      </div>
+    </div>
+    <div class="insight-body">L1 reviewers are rejecting one-third of submissions, adding an average 4.2 days to cycle time. Root cause analysis shows 80% of rejections relate to incomplete evidence documentation. Recommend: standardized checklist template for submitters, and optional pre-check validation before L1 submission.</div>
+    <div class="insight-tags">
+      <span class="insight-tag">Bottleneck: L1 Stage</span>
+      <span class="insight-tag">Evidence Quality</span>
+      <span class="insight-tag">Process Improvement</span>
+    </div>
+  </div>
+
+  <div class="insight-card">
+    <div class="insight-card-header">
+      <div class="insight-icon perf">📊</div>
+      <div>
+        <div class="insight-title">UK-K01 (Olympus) — Only SLA-Met KRI This Month</div>
+        <div style="font-size:.72rem;color:var(--text-muted)">Positive signal · Consistent performer</div>
+      </div>
+    </div>
+    <div class="insight-body">UK-K01 has met SLA for 11 of the last 12 months, making it the most reliable KRI in the framework. The Olympus source system has near-perfect data delivery. This KRI can serve as a benchmark for data provider SLA design with other source systems.</div>
+    <div class="insight-tags">
+      <span class="insight-tag">Benchmark</span>
+      <span class="insight-tag">Olympus</span>
+      <span class="insight-tag">Best Practice</span>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 5: EVIDENCE VAULT
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="page-view" id="page-evidence">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">🗂️ Evidence Vault</h1>
+      <p class="page-subtitle">Consolidated view of all evidence across KRIs · Version history · Drag & drop upload</p>
+    </div>
+    <div class="page-actions">
+      <button class="btn btn-primary">📎 Bulk Upload</button>
+    </div>
+  </div>
+
+  <div class="evidence-summary">
+    <div class="evidence-stat"><div class="es-label">Total Evidence Items</div><div class="es-val">142</div></div>
+    <div class="evidence-stat"><div class="es-label">% Complete</div><div class="es-val" style="color:var(--amber)">68%</div></div>
+    <div class="evidence-stat"><div class="es-label">Missing</div><div class="es-val" style="color:var(--red)">32</div></div>
+    <div class="evidence-stat"><div class="es-label">Aging 30+ Days</div><div class="es-val" style="color:var(--amber)">12</div></div>
+  </div>
+
+  <div class="filters" style="margin-bottom:16px">
+    <select class="filter-select" aria-label="Region filter"><option>All Regions</option><option>UK</option><option>SGP</option><option>CEP</option></select>
+    <select class="filter-select" aria-label="KRI filter"><option>All KRIs</option><option>UK-K01</option><option>UK-K02</option></select>
+    <select class="filter-select" aria-label="Control filter"><option>All Controls</option><option>SLA</option><option>C&A</option><option>Material Prep</option></select>
+    <select class="filter-select" aria-label="Status filter"><option>All Status</option><option>Complete</option><option>Missing</option><option>Overdue</option></select>
+    <div class="filter-spacer"></div>
+    <input type="search" class="search-input" placeholder="Search evidence..." aria-label="Search evidence">
+  </div>
+
+  <!-- Drop zone -->
+  <div style="border:2px dashed var(--border);border-radius:var(--radius);padding:32px;text-align:center;margin-bottom:20px;color:var(--text-muted);font-size:.85rem;cursor:pointer;transition:.2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
+    📎 <strong>Drag and drop files here</strong> or click to browse<br>
+    <span style="font-size:.72rem">.xlsx, .msg, .pdf, .pptx · Max 5 files · Max 2MB each · 10MB total · Auto-match by filename pattern</span>
+  </div>
+
+  <div class="data-table-wrapper">
+    <table class="data-table">
+      <thead><tr><th>KRI ID</th><th>KRI Name</th><th>Control</th><th>Month</th><th>Status</th><th>File</th><th>Version</th><th>Uploaded By</th><th>Date</th><th>Actions</th></tr></thead>
+      <tbody>
+        <tr><td class="kri-id">UK-K01</td><td>CDE Data Quality in Olympus</td><td>SLA</td><td>Mar 26</td><td><span class="status-chip met"><span class="chip-icon">✓</span> Complete</span></td><td style="font-size:.75rem">UK-K01_SLA_Mar26.xlsx</td><td style="font-family:var(--mono);font-size:.72rem">V3</td><td style="font-size:.78rem">V. Avireddy</td><td style="font-size:.72rem;color:var(--text-muted)">28 Mar</td><td><button class="btn" style="padding:3px 8px;font-size:.7rem">⬇</button></td></tr>
+        <tr><td class="kri-id">UK-K02</td><td>CDE Data Quality in Genesis</td><td>SLA</td><td>Mar 26</td><td><span class="status-chip breached"><span class="chip-icon">✕</span> Missing</span></td><td style="font-size:.75rem;color:var(--text-muted)">—</td><td style="font-family:var(--mono);font-size:.72rem">—</td><td style="font-size:.78rem">—</td><td style="font-size:.72rem;color:var(--text-muted)">—</td><td><button class="btn btn-primary" style="padding:3px 8px;font-size:.7rem">📎 Upload</button></td></tr>
+        <tr><td class="kri-id">UK-K03</td><td>T1 P&L Adjustments</td><td>SLA</td><td>Mar 26</td><td><span class="status-chip breached"><span class="chip-icon">✕</span> Missing</span></td><td style="font-size:.75rem;color:var(--text-muted)">—</td><td style="font-family:var(--mono);font-size:.72rem">—</td><td style="font-size:.78rem">—</td><td style="font-size:.72rem;color:var(--text-muted)">—</td><td><button class="btn btn-primary" style="padding:3px 8px;font-size:.7rem">📎 Upload</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 6: KRI ONBOARDING WIZARD
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="page-view" id="page-onboarding">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">⚙️ KRI Onboarding Wizard</h1>
+      <p class="page-subtitle">Admin only · Add a new KRI in under 5 minutes for any region and source system</p>
+    </div>
+  </div>
+
+  <div class="wizard-steps">
+    <div class="wizard-step done" style="position:relative"><div class="wizard-step-dot">✓</div><div class="wizard-step-label">Identity</div><div class="wizard-connector" style="background:var(--green)"></div></div>
+    <div class="wizard-step active" style="position:relative"><div class="wizard-step-dot">2</div><div class="wizard-step-label">Data Source</div><div class="wizard-connector"></div></div>
+    <div class="wizard-step" style="position:relative"><div class="wizard-step-dot">3</div><div class="wizard-step-label">Controls</div><div class="wizard-connector"></div></div>
+    <div class="wizard-step" style="position:relative"><div class="wizard-step-dot">4</div><div class="wizard-step-label">Metric Config</div><div class="wizard-connector"></div></div>
+    <div class="wizard-step" style="position:relative"><div class="wizard-step-dot">5</div><div class="wizard-step-label">Role Assignment</div><div class="wizard-connector"></div></div>
+    <div class="wizard-step"><div class="wizard-step-dot">6</div><div class="wizard-step-label">Review & Activate</div></div>
+  </div>
+
+  <div class="wizard-form">
+    <h3 style="font-size:1rem;margin-bottom:16px">Step 2 — Data Source Configuration</h3>
+    <div class="form-group">
+      <label class="form-label">Source System(s)</label>
+      <select class="form-input" multiple style="height:80px"><option>Olympus</option><option selected>Genesis</option><option>DCRM</option><option>S2</option><option>Optima</option><option>EUC</option><option>Manual</option></select>
+      <div class="form-hint">Multi-select: hold Ctrl/Cmd to pick multiple</div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">SLA Check Enabled</label>
+        <select class="form-input"><option>Yes</option><option>No</option></select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">SLA Start Day</label>
+        <input type="number" class="form-input" value="1" min="0" max="31">
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label class="form-label">SLA End Day</label>
+        <input type="number" class="form-input" value="15" min="1" max="31">
+        <div class="form-hint">Must be > SLA Start</div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Email Reminder Day</label>
+        <input type="number" class="form-input" value="12" min="1" max="31">
+        <div class="form-hint">Must be < Escalation Day</div>
+      </div>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Email Escalation Day</label>
+      <input type="number" class="form-input" value="16" min="1" max="31">
+      <div class="form-hint">Must be > Reminder Day</div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:20px">
+      <button class="btn">← Back</button>
+      <button class="btn btn-primary">Next: Controls →</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════════════
+     PAGE 7: MONITORING
+     ════════════════════════════════════════════════════════════════════ -->
+<div class="page-view" id="page-monitoring">
+  <div class="page-header">
+    <div>
+      <h1 class="page-title">🖥️ Live Monitoring</h1>
+      <p class="page-subtitle">Real-time KRI status · Scheduler health · Activity feed</p>
+    </div>
+  </div>
+
+  <div class="alert-strip critical" role="alert">
+    <span class="alert-icon">⚠</span>
+    <span><strong>20 KRIs</strong> SLA Breached this month. Sources: Genesis (5 KRIs), DCRM (13 KRIs), S2, Optima, CitiRisk.</span>
+  </div>
+
+  <div class="chart-grid">
+    <div class="chart-card">
+      <div class="chart-card-header"><div class="chart-card-title">📊 Source System Health</div></div>
+      <div class="chart-legend">
+        <div class="legend-item"><div class="legend-dot" style="background:#475569"></div> Total KRIs</div>
+        <div class="legend-item"><div class="legend-dot" style="background:var(--red)"></div> Breached</div>
+      </div>
+      <div style="display:flex;align-items:flex-end;gap:20px;height:120px;padding:10px 0;justify-content:center">
+        <div style="text-align:center"><div style="display:flex;gap:3px;align-items:flex-end;justify-content:center"><div style="width:20px;height:40px;background:#475569;border-radius:3px 3px 0 0"></div><div style="width:20px;height:32px;background:var(--red);border-radius:3px 3px 0 0"></div></div><div style="font-size:.6rem;color:var(--text-muted);margin-top:4px">Genesis</div></div>
+        <div style="text-align:center"><div style="display:flex;gap:3px;align-items:flex-end;justify-content:center"><div style="width:20px;height:100px;background:#475569;border-radius:3px 3px 0 0"></div><div style="width:20px;height:80px;background:var(--red);border-radius:3px 3px 0 0"></div></div><div style="font-size:.6rem;color:var(--text-muted);margin-top:4px">DCRM</div></div>
+        <div style="text-align:center"><div style="display:flex;gap:3px;align-items:flex-end;justify-content:center"><div style="width:20px;height:20px;background:#475569;border-radius:3px 3px 0 0"></div><div style="width:20px;height:16px;background:var(--red);border-radius:3px 3px 0 0"></div></div><div style="font-size:.6rem;color:var(--text-muted);margin-top:4px">S2</div></div>
+        <div style="text-align:center"><div style="display:flex;gap:3px;align-items:flex-end;justify-content:center"><div style="width:20px;height:16px;background:#475569;border-radius:3px 3px 0 0"></div><div style="width:20px;height:12px;background:var(--red);border-radius:3px 3px 0 0"></div></div><div style="font-size:.6rem;color:var(--text-muted);margin-top:4px">Optima</div></div>
+        <div style="text-align:center"><div style="display:flex;gap:3px;align-items:flex-end;justify-content:center"><div style="width:20px;height:24px;background:#475569;border-radius:3px 3px 0 0"></div><div style="width:20px;height:20px;background:var(--red);border-radius:3px 3px 0 0"></div></div><div style="font-size:.6rem;color:var(--text-muted);margin-top:4px">EUC</div></div>
+        <div style="text-align:center"><div style="display:flex;gap:3px;align-items:flex-end;justify-content:center"><div style="width:20px;height:12px;background:#475569;border-radius:3px 3px 0 0"></div><div style="width:20px;height:4px;background:var(--green);border-radius:3px 3px 0 0"></div></div><div style="font-size:.6rem;color:var(--text-muted);margin-top:4px">Olympus</div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <div class="chart-card-header"><div class="chart-card-title">⚙️ Scheduler Status</div><span class="badge green" style="font-size:.65rem">● Running</span></div>
+      <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem"><span>SLA Status Checker</span><span style="font-size:.7rem;color:var(--text-muted)">Every 6h · Last: 31 Mar 14:00</span><span class="badge green" style="font-size:.6rem">✓ OK</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem"><span>SLA Breach Checker</span><span style="font-size:.7rem;color:var(--text-muted)">Daily · Last: 31 Mar 00:10</span><span class="badge green" style="font-size:.6rem">✓ OK</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem"><span>DCRM KRI Processor</span><span style="font-size:.7rem;color:var(--text-muted)">4x daily · Last: 31 Mar 14:45</span><span class="badge green" style="font-size:.6rem">✓ OK</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:.8rem"><span>Email Reminder</span><span style="font-size:.7rem;color:var(--text-muted)">Mon-Fri 05:30 · Last: 31 Mar</span><span class="badge green" style="font-size:.6rem">✓ OK</span></div>
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;font-size:.8rem"><span>Monthly KRI Insert</span><span style="font-size:.7rem;color:var(--text-muted)">1st of month · Last: 01 Mar 00:05</span><span class="badge green" style="font-size:.6rem">✓ OK</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="chart-card full" style="margin-top:16px">
+    <div class="chart-card-header"><div class="chart-card-title">📋 Activity Feed</div></div>
+    <div style="display:flex;flex-direction:column;gap:0">
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:.8rem;align-items:flex-start"><span style="color:var(--green);font-size:.9rem">●</span><div><span>UK-K01 — SLA Met. Metric: 90%. RAG: RED (threshold not met despite SLA). Evidence available.</span><br><span style="font-size:.7rem;color:var(--text-muted)">31 Mar 2026 06:39</span></div></div>
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:.8rem;align-items:flex-start"><span style="color:var(--red);font-size:.9rem">●</span><div><span>UK-K02 through UK-K09 — SLA Breached. Data not received from Genesis, S2, Optima, CitiRisk.</span><br><span style="font-size:.7rem;color:var(--text-muted)">16 Mar 2026 00:10</span></div></div>
+      <div style="display:flex;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:.8rem;align-items:flex-start"><span style="color:var(--accent);font-size:.9rem">●</span><div><span>7 KRIs assigned to L1 approvers for Completeness & Accuracy review.</span><br><span style="font-size:.7rem;color:var(--text-muted)">31 Mar 2026 09:00</span></div></div>
+      <div style="display:flex;gap:10px;padding:8px 0;font-size:.8rem;align-items:flex-start"><span style="color:var(--purple);font-size:.9rem">●</span><div><span>Scorecard BIC-169 (January 2026 BRCC) submitted. Awaiting approval.</span><br><span style="font-size:.7rem;color:var(--text-muted)">23 Jan 2026 18:09</span></div></div>
+    </div>
+  </div>
+</div>
+
+<!-- Stub pages for remaining nav items -->
+<div class="page-view" id="page-kri-explorer"><div class="page-header"><div><h1 class="page-title">🔍 KRI Explorer</h1><p class="page-subtitle">All KRIs with rich filtering · Region, Category, Status, Source</p></div></div><div style="color:var(--text-muted);padding:40px;text-align:center">Full KRI explorer with advanced filtering, search, and inline detail panels. Similar to Data Control Workbench but focused on exploration.</div></div>
+<div class="page-view" id="page-maker-checker"><div class="page-header"><div><h1 class="page-title">📝 Maker-Checker Flow</h1><p class="page-subtitle">Material Preparer Controls · Upload .pptx · L1→L2→L3 approval</p></div></div><div style="color:var(--text-muted);padding:40px;text-align:center">Full maker-checker submission interface with file upload, approval progress, and audit trail.</div></div>
+<div class="page-view" id="page-variance"><div class="page-header"><div><h1 class="page-title">📈 Variance Control</h1><p class="page-subtitle">Auto-extraction · Commentary submission · L1→L2→L3 approval</p></div></div><div style="color:var(--text-muted);padding:40px;text-align:center">Variance analysis dashboard with PASS/FAIL indicators, commentary forms, and approval workflow.</div></div>
+<div class="page-view" id="page-bottlenecks"><div class="page-header"><div><h1 class="page-title">⏱️ Bottlenecks & Cycle Time</h1><p class="page-subtitle">Approval cycle analytics · Time per stage · Rework rate · Bottleneck alerts</p></div></div><div style="color:var(--text-muted);padding:40px;text-align:center">Cycle time analytics with per-stage time analysis, bottleneck identification, and historical comparison.</div></div>
+<div class="page-view" id="page-roles"><div class="page-header"><div><h1 class="page-title">👥 Role Management</h1><p class="page-subtitle">Configurable assignments · Zero hardcoding · All roles editable via UI</p></div></div><div style="color:var(--text-muted);padding:40px;text-align:center">Role management interface grouped by control type with add/remove user functionality and escalation config.</div></div>
+
+</main>
+
+<!-- ═══ DETAIL DRAWER ═══ -->
+<div class="drawer-overlay" id="drawer-overlay" onclick="closeDrawer()"></div>
+<div class="drawer" id="drawer" role="dialog" aria-label="KRI detail drawer">
+  <button class="drawer-close" onclick="closeDrawer()" aria-label="Close drawer">✕</button>
+
+  <div class="drawer-kri-header">
+    <div style="display:flex;gap:8px;margin-bottom:8px">
+      <span class="status-chip breached"><span class="chip-icon">✕</span> SLA Breached</span>
+      <span class="status-chip pending"><span class="chip-icon">⏳</span> L1 Pending</span>
+    </div>
+    <div class="drawer-kri-name">UK-K29 · Data Concerns – Count – All Reports</div>
+    <div class="drawer-kri-meta">Category: Report Accuracy · Source: DCRM · SLA End: Day 2 · Region: UK</div>
+  </div>
+
+  <div class="drawer-stat-row">
+    <div class="drawer-stat"><label>RAG Status</label><div class="val" style="color:var(--red)">🔴 RED</div></div>
+    <div class="drawer-stat"><label>Impact</label><div class="val">High</div></div>
+    <div class="drawer-stat"><label>Owner</label><div class="val">V. Avireddy</div></div>
+    <div class="drawer-stat"><label>Due Date</label><div class="val" style="color:var(--red)">02 Mar (Overdue)</div></div>
+  </div>
+
+  <div class="drawer-section">
+    <div class="drawer-section-title">📋 Approval Timeline</div>
+    <div class="timeline">
+      <div class="timeline-item active">
+        <div class="tl-title">L1 Review — Pending</div>
+        <div class="tl-meta">Assigned to O. Adesanya · Waiting since 31 Mar</div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-title">L2 Review — Not started</div>
+        <div class="tl-meta">Will be assigned after L1 approval</div>
+      </div>
+      <div class="timeline-item">
+        <div class="tl-title">L3 Final — Not started</div>
+        <div class="tl-meta">Controls team final review</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="drawer-section">
+    <div class="drawer-section-title">📎 Evidence</div>
+    <div style="padding:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
+      No evidence uploaded yet. <a href="#" style="color:var(--accent)">Upload now →</a>
+    </div>
+  </div>
+
+  <div class="drawer-section">
+    <div class="drawer-section-title">💬 Comments</div>
+    <div style="padding:12px;background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);font-size:.8rem;color:var(--text-muted)">
+      No comments yet. <a href="#" style="color:var(--accent)">Add comment →</a>
+    </div>
+  </div>
+
+  <div class="drawer-section">
+    <div class="drawer-section-title">🏷️ Root-Cause Tagging</div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <span class="insight-tag" style="cursor:pointer">Data Not Received</span>
+      <span class="insight-tag" style="cursor:pointer">Source System Down</span>
+      <span class="insight-tag" style="cursor:pointer">Late Submission</span>
+      <span class="insight-tag" style="cursor:pointer;border-color:var(--accent);color:var(--accent)">+ Custom</span>
+    </div>
+  </div>
+</div>
+
+<script>
+// Page navigation
+function showPage(pageId, sidebarItem) {
+  document.querySelectorAll('.page-view').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.sidebar-item').forEach(s => s.classList.remove('active'));
+  const page = document.getElementById('page-' + pageId);
+  if (page) page.classList.add('active');
+  if (sidebarItem) sidebarItem.classList.add('active');
+}
+
+// Role switcher
+function switchRole(btn) {
+  document.querySelectorAll('.header-nav button').forEach(b => { b.classList.remove('active'); b.setAttribute('aria-selected','false'); });
+  btn.classList.add('active');
+  btn.setAttribute('aria-selected','true');
+}
+
+// Drawer
+function openDrawer() {
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+function closeDrawer() {
+  document.getElementById('drawer').classList.remove('open');
+  document.getElementById('drawer-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// Keyboard support
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') closeDrawer();
+});
+
+// Sidebar keyboard nav
+document.querySelectorAll('.sidebar-item').forEach(item => {
+  item.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); item.click(); }
+  });
+});
+
+// Tab switching in data control
+document.querySelectorAll('.tab-btn').forEach(tab => {
+  tab.addEventListener('click', () => {
+    tab.parentElement.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+    tab.classList.add('active');
+  });
+});
+</script>
+</body>
+</html>
