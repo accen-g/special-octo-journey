@@ -67,7 +67,7 @@ def seed_database():
         # Control Dimensions (7 tabs)
         dimensions = []
         for i, (code, name) in enumerate([
-            ("DATA_PROVIDER_SLA", "Data Provider SLA"),
+            ("DATA_PROVIDER_SLA", "Timeliness"),
             ("COMPLETENESS_ACCURACY", "Completeness & Accuracy"),
             ("MATERIAL_PREPARER", "Material Preparer"),
             ("VARIANCE_ANALYSIS", "Variance Analysis"),
@@ -325,11 +325,33 @@ def seed_database():
         db.close()
 
 
+def fix_dimension_names():
+    """Rename any legacy dimension labels to current display names."""
+    db = SessionLocal()
+    try:
+        from app.models import ControlDimensionMaster
+        renames = {"Data Provider SLA": "Timeliness"}
+        for old, new in renames.items():
+            dim = db.query(ControlDimensionMaster).filter(
+                ControlDimensionMaster.dimension_name == old
+            ).first()
+            if dim:
+                dim.dimension_name = new
+                db.commit()
+                logger.info(f"Renamed dimension '{old}' → '{new}'")
+    except Exception as e:
+        db.rollback()
+        logger.error(f"fix_dimension_names failed: {e}")
+    finally:
+        db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting BIC-CCD v{settings.APP_VERSION} ({settings.ENV})")
     Base.metadata.create_all(bind=engine)
     seed_database()
+    fix_dimension_names()
     yield
     logger.info("Shutting down BIC-CCD")
 

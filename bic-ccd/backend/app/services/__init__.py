@@ -292,31 +292,45 @@ class MakerCheckerService:
         level = sub.final_status.replace("_PENDING", "")  # L1, L2, L3
 
         if level == "L1":
-            sub.l1_action = action
-            sub.l1_action_dt = datetime.utcnow()
-            sub.l1_comments = action_req.comments
-            if action == "APPROVED":
-                if action_req.next_approver_id:
-                    sub.l2_approver_id = action_req.next_approver_id
-                    sub.final_status = "L2_PENDING"
-                    self._notify(action_req.next_approver_id, sub, "L2")
-                else:
-                    sub.final_status = "APPROVED"
-            elif action in ("REJECTED", "REWORK"):
-                sub.final_status = "REWORK" if action == "REWORK" else "REJECTED"
+            if action == "ESCALATE":
+                escalate_to = self._resolve_escalation_target(sub, "L2_APPROVER", action_req.next_approver_id)
+                sub.l2_approver_id = escalate_to
+                sub.final_status = "L2_PENDING"
+                if escalate_to:
+                    self._notify(escalate_to, sub, "L2 (Escalated)")
+            else:
+                sub.l1_action = action
+                sub.l1_action_dt = datetime.utcnow()
+                sub.l1_comments = action_req.comments
+                if action == "APPROVED":
+                    if action_req.next_approver_id:
+                        sub.l2_approver_id = action_req.next_approver_id
+                        sub.final_status = "L2_PENDING"
+                        self._notify(action_req.next_approver_id, sub, "L2")
+                    else:
+                        sub.final_status = "APPROVED"
+                elif action in ("REJECTED", "REWORK"):
+                    sub.final_status = "REWORK" if action == "REWORK" else "REJECTED"
         elif level == "L2":
-            sub.l2_action = action
-            sub.l2_action_dt = datetime.utcnow()
-            sub.l2_comments = action_req.comments
-            if action == "APPROVED":
-                if action_req.next_approver_id:
-                    sub.l3_approver_id = action_req.next_approver_id
-                    sub.final_status = "L3_PENDING"
-                    self._notify(action_req.next_approver_id, sub, "L3")
-                else:
-                    sub.final_status = "APPROVED"
-            elif action in ("REJECTED", "REWORK"):
-                sub.final_status = "REWORK" if action == "REWORK" else "REJECTED"
+            if action == "ESCALATE":
+                escalate_to = self._resolve_escalation_target(sub, "L3_ADMIN", action_req.next_approver_id)
+                sub.l3_approver_id = escalate_to
+                sub.final_status = "L3_PENDING"
+                if escalate_to:
+                    self._notify(escalate_to, sub, "L3 (Escalated)")
+            else:
+                sub.l2_action = action
+                sub.l2_action_dt = datetime.utcnow()
+                sub.l2_comments = action_req.comments
+                if action == "APPROVED":
+                    if action_req.next_approver_id:
+                        sub.l3_approver_id = action_req.next_approver_id
+                        sub.final_status = "L3_PENDING"
+                        self._notify(action_req.next_approver_id, sub, "L3")
+                    else:
+                        sub.final_status = "APPROVED"
+                elif action in ("REJECTED", "REWORK"):
+                    sub.final_status = "REWORK" if action == "REWORK" else "REJECTED"
         elif level == "L3":
             sub.l3_action = action
             sub.l3_action_dt = datetime.utcnow()
@@ -345,6 +359,26 @@ class MakerCheckerService:
 
         return self.mc_repo.update(sub)
 
+    def _resolve_escalation_target(self, sub: MakerCheckerSubmission, role_code: str,
+                                    explicit_id: Optional[int] = None) -> Optional[int]:
+        """Find the best escalation target: explicit override > KRI assignment > assignment rule."""
+        if explicit_id:
+            return explicit_id
+        # Look for KRI-specific assignment in kri_assignment table
+        from app.models import KriAssignment, MonthlyControlStatus
+        status_obj = self.status_repo.get_by_id(sub.status_id)
+        if status_obj:
+            assignment = self.db.query(KriAssignment).filter(
+                KriAssignment.kri_id == status_obj.kri_id,
+                KriAssignment.role_code == role_code,
+                KriAssignment.is_active == True,
+            ).first()
+            if assignment:
+                return assignment.assigned_user_id
+            # Fall back to assignment rules
+            return self.assign_svc.resolve_approver(role_code=role_code, kri_id=status_obj.kri_id)
+        return None
+
     def _notify(self, user_id: int, sub: MakerCheckerSubmission, level: str):
         self.notif_repo.create({
             "user_id": user_id,
@@ -364,8 +398,6 @@ class VarianceService:
         self.db = db
 
     def submit_variance(self, req: VarianceSubmitRequest, submitted_by: int):
-        metric = self.db.query(MetricRepository).filter_by(metric_id=req.metric_id).first() if False else None
-        # Just use metric_id from request
         from app.models import MetricValues
         metric = self.db.query(MetricValues).filter(MetricValues.metric_id == req.metric_id).first()
         if not metric:

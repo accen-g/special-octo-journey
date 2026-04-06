@@ -293,7 +293,7 @@ class MakerCheckerSubmitRequest(BaseModel):
     status_id: int
     evidence_id: Optional[int] = None
     submission_notes: Optional[str] = None
-    l1_approver_id: int
+    l1_approver_id: Optional[int] = None  # auto-resolved from assignment rules when omitted
 
 class MakerCheckerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

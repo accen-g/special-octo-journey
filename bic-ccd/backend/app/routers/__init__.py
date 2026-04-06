@@ -338,9 +338,11 @@ def pending_approvals(
             "submitted_by_name": s.submitter.full_name if s.submitter else f"User #{s.submitted_by}",
             "kri_name": kri.kri_name if kri else None,
             "kri_code": kri.kri_code if kri else None,
+            "region_name": kri.region.region_name if kri and kri.region else None,
+            "period_year": cs.period_year if cs else None,
+            "period_month": cs.period_month if cs else None,
             "sla_due_dt": cs.sla_due_dt if cs else None,
             "sla_met": cs.sla_met if cs else None,
-            "rag_status": cs.rag_status if cs else None,
             "pending_with": compute_pending_with(s),
             "l1_approver_id": s.l1_approver_id,
             "l1_approver_name": approver_map.get(s.l1_approver_id) if s.l1_approver_id else None,
@@ -390,9 +392,11 @@ def all_pending(
             "submitted_by_name": s.submitter.full_name if s.submitter else f"User #{s.submitted_by}",
             "kri_name": kri.kri_name if kri else None,
             "kri_code": kri.kri_code if kri else None,
+            "region_name": kri.region.region_name if kri and kri.region else None,
+            "period_year": cs.period_year if cs else None,
+            "period_month": cs.period_month if cs else None,
             "sla_due_dt": cs.sla_due_dt if cs else None,
             "sla_met": cs.sla_met if cs else None,
-            "rag_status": cs.rag_status if cs else None,
             "pending_with": compute_pending_with(s),
             "l1_approver_id": s.l1_approver_id,
             "l1_approver_name": approver_map.get(s.l1_approver_id) if s.l1_approver_id else None,
@@ -405,6 +409,59 @@ def all_pending(
             "l3_action": s.l3_action,
         }
     return {"items": [_enrich_sub(s) for s in items], "total": total}
+
+@mc_router.get("/history")
+def approval_history(
+    year: int = Query(default=None),
+    month: int = Query(default=None),
+    page: int = 1,
+    page_size: int = 50,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_approvals),
+):
+    """Return completed/rejected/rework submissions for the current user (or all for admins)."""
+    repo = MakerCheckerRepository(db)
+    admin_roles = {"L3_ADMIN", "SYSTEM_ADMIN"}
+    is_admin = any(r.get("role_code") in admin_roles for r in user.get("roles", []))
+    if is_admin:
+        items, total = repo.get_history_admin(year, month, page, page_size)
+    else:
+        items, total = repo.get_history(user["user_id"], year, month, page, page_size)
+
+    all_approver_ids = {
+        aid for s in items
+        for aid in [s.l1_approver_id, s.l2_approver_id, s.l3_approver_id] if aid
+    }
+    approver_map: dict = {}
+    if all_approver_ids:
+        users_q = db.query(AppUser).filter(AppUser.user_id.in_(all_approver_ids)).all()
+        approver_map = {u.user_id: u.full_name for u in users_q}
+
+    def _enrich_hist(s):
+        cs = s.control_status
+        kri = cs.kri if cs else None
+        return {
+            "submission_id": s.submission_id,
+            "status_id": s.status_id,
+            "kri_id": cs.kri_id if cs else None,
+            "kri_name": kri.kri_name if kri else None,
+            "kri_code": kri.kri_code if kri else None,
+            "region_name": kri.region.region_name if kri and kri.region else None,
+            "period_year": cs.period_year if cs else None,
+            "period_month": cs.period_month if cs else None,
+            "final_status": s.final_status,
+            "submitted_dt": s.submitted_dt,
+            "submitted_by": s.submitted_by,
+            "submitted_by_name": s.submitter.full_name if s.submitter else f"User #{s.submitted_by}",
+            "l1_approver_name": approver_map.get(s.l1_approver_id) if s.l1_approver_id else None,
+            "l1_action": s.l1_action,
+            "l2_approver_name": approver_map.get(s.l2_approver_id) if s.l2_approver_id else None,
+            "l2_action": s.l2_action,
+            "l3_approver_name": approver_map.get(s.l3_approver_id) if s.l3_approver_id else None,
+            "l3_action": s.l3_action,
+        }
+    return {"items": [_enrich_hist(s) for s in items], "total": total, "page": page, "page_size": page_size}
+
 
 @mc_router.post("/{submission_id}/action")
 def process_approval(submission_id: int, req: MakerCheckerActionRequest,

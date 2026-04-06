@@ -515,6 +515,50 @@ class MakerCheckerRepository:
         ).group_by(MakerCheckerSubmission.final_status).all()
         return {status: count for status, count in counts}
 
+    def get_history(self, user_id: int, year: int = None, month: int = None,
+                    page: int = 1, page_size: int = 50):
+        """Return completed/approved/rejected submissions where user was involved."""
+        q = self.db.query(MakerCheckerSubmission).options(
+            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri),
+            joinedload(MakerCheckerSubmission.submitter),
+        ).filter(
+            MakerCheckerSubmission.final_status.in_(["APPROVED", "REJECTED", "REWORK"]),
+            or_(
+                MakerCheckerSubmission.submitted_by == user_id,
+                MakerCheckerSubmission.l1_approver_id == user_id,
+                MakerCheckerSubmission.l2_approver_id == user_id,
+                MakerCheckerSubmission.l3_approver_id == user_id,
+            )
+        )
+        if year and month:
+            q = q.filter(
+                MakerCheckerSubmission.control_status.has(
+                    and_(MonthlyControlStatus.period_year == year,
+                         MonthlyControlStatus.period_month == month)
+                )
+            )
+        q = q.order_by(desc(MakerCheckerSubmission.submitted_dt))
+        return paginate(q, page, page_size)
+
+    def get_history_admin(self, year: int = None, month: int = None,
+                          page: int = 1, page_size: int = 50):
+        """Admin view: all completed submissions."""
+        q = self.db.query(MakerCheckerSubmission).options(
+            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri),
+            joinedload(MakerCheckerSubmission.submitter),
+        ).filter(
+            MakerCheckerSubmission.final_status.in_(["APPROVED", "REJECTED", "REWORK"])
+        )
+        if year and month:
+            q = q.filter(
+                MakerCheckerSubmission.control_status.has(
+                    and_(MonthlyControlStatus.period_year == year,
+                         MonthlyControlStatus.period_month == month)
+                )
+            )
+        q = q.order_by(desc(MakerCheckerSubmission.submitted_dt))
+        return paginate(q, page, page_size)
+
     def update(self, sub: MakerCheckerSubmission) -> MakerCheckerSubmission:
         sub.updated_dt = datetime.utcnow()
         self.db.commit()
