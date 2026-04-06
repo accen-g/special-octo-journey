@@ -1,0 +1,40 @@
+{
+  "name": "bic-ccd-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "lint": "eslint . --ext ts,tsx"
+  },
+  "dependencies": {
+    "@emotion/react": "^11.11.1",
+    "@emotion/styled": "^11.11.0",
+    "@mui/icons-material": "^5.15.0",
+    "@mui/material": "^5.15.0",
+    "@mui/x-date-pickers": "^6.18.0",
+    "@reduxjs/toolkit": "^2.0.1",
+    "@tanstack/react-query": "^5.13.0",
+    "ag-grid-community": "^31.0.0",
+    "ag-grid-react": "^31.0.0",
+    "axios": "^1.6.2",
+    "date-fns": "^3.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-hook-form": "^7.49.0",
+    "react-redux": "^9.0.4",
+    "react-router-dom": "^6.21.0",
+    "recharts": "^2.10.3",
+    "zod": "^3.22.4",
+    "@hookform/resolvers": "^3.3.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.43",
+    "@types/react-dom": "^18.2.17",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.3.3",
+    "vite": "^5.0.8"
+  }
+}

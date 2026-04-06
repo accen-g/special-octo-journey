@@ -1,0 +1,43 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+venv/
+.venv/
+*.db
+
+# Node
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Environment (never commit real secrets)
+.env
+.env.local
+.env.*.local
+backend/config/.env.production
+backend/config/.env.uat
+
+# Docker
+docker-compose.override.yml
+
+# Evidence storage
+/tmp/evidence/
+
+# Coverage
+htmlcov/
+.coverage
+coverage/
+
+# Logs
+*.log
