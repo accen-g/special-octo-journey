@@ -1,0 +1,545 @@
+-- ============================================================
+-- !! ARCHIVED — DO NOT USE FOR DEPLOYMENT !!
+-- ============================================================
+-- This file is kept for historical and audit reference ONLY.
+-- Canonical DDL is now managed exclusively via:
+--   backend/app/models/__init__.py   (SQLAlchemy ORM — source of truth)
+--   backend/alembic/versions/        (Alembic incremental migrations)
+--
+-- Archived: 2026-04-07
+-- Reason: Missing 8 BIC_ tables (Scorecard, Case, AssignmentAudit, etc.),
+--         stale CHECK constraints (7 statuses / 7 roles only),
+--         BIC_SHED_LOCK column mismatch (expires_at vs LOCK_UNTIL).
+-- For Oracle deployment, run: alembic upgrade head
+-- ============================================================
+
+-- ============================================================
+-- BIC-CCD Database Schema for Oracle 19c
+-- B&I Data Metrics and Controls
+-- ============================================================
+
+-- ============================================================
+-- SEQUENCES
+-- ============================================================
+CREATE SEQUENCE seq_region_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_kri_category_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_control_dim_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_kri_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_user_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_user_role_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_kri_config_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_kri_assignment_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_monthly_status_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_approval_audit_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_evidence_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_evidence_version_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_data_source_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_metric_value_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_kri_comment_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_maker_submission_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_variance_submission_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_escalation_config_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_email_audit_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_scheduler_lock_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_notification_id START WITH 1 INCREMENT BY 1 NOCACHE;
+CREATE SEQUENCE seq_saved_view_id START WITH 1 INCREMENT BY 1 NOCACHE;
+
+-- ============================================================
+-- LOOKUP / MASTER TABLES
+-- ============================================================
+
+CREATE TABLE region_master (
+    region_id        NUMBER DEFAULT seq_region_id.NEXTVAL PRIMARY KEY,
+    region_code      VARCHAR2(10)  NOT NULL UNIQUE,
+    region_name      VARCHAR2(100) NOT NULL,
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE TABLE kri_category_master (
+    category_id      NUMBER DEFAULT seq_kri_category_id.NEXTVAL PRIMARY KEY,
+    category_code    VARCHAR2(30)  NOT NULL UNIQUE,
+    category_name    VARCHAR2(200) NOT NULL,
+    description      VARCHAR2(500),
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE TABLE control_dimension_master (
+    dimension_id     NUMBER DEFAULT seq_control_dim_id.NEXTVAL PRIMARY KEY,
+    dimension_code   VARCHAR2(30)  NOT NULL UNIQUE,
+    dimension_name   VARCHAR2(200) NOT NULL,
+    display_order    NUMBER(3) NOT NULL,
+    description      VARCHAR2(500),
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+-- ============================================================
+-- KRI MASTER
+-- ============================================================
+
+CREATE TABLE kri_master (
+    kri_id           NUMBER DEFAULT seq_kri_id.NEXTVAL PRIMARY KEY,
+    kri_code         VARCHAR2(30)  NOT NULL UNIQUE,
+    kri_name         VARCHAR2(300) NOT NULL,
+    description      CLOB,
+    category_id      NUMBER NOT NULL REFERENCES kri_category_master(category_id),
+    region_id        NUMBER NOT NULL REFERENCES region_master(region_id),
+    risk_level       VARCHAR2(20) DEFAULT 'MEDIUM' CHECK (risk_level IN ('LOW','MEDIUM','HIGH','CRITICAL')),
+    framework        VARCHAR2(100),
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    onboarded_dt     TIMESTAMP,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE INDEX idx_kri_category ON kri_master(category_id);
+CREATE INDEX idx_kri_region   ON kri_master(region_id);
+
+-- ============================================================
+-- USERS AND ROLES
+-- ============================================================
+
+CREATE TABLE app_user (
+    user_id          NUMBER DEFAULT seq_user_id.NEXTVAL PRIMARY KEY,
+    soe_id           VARCHAR2(20) NOT NULL UNIQUE,
+    full_name        VARCHAR2(200) NOT NULL,
+    email            VARCHAR2(200) NOT NULL,
+    department       VARCHAR2(100),
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    last_login_dt    TIMESTAMP,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE TABLE user_role_mapping (
+    mapping_id       NUMBER DEFAULT seq_user_role_id.NEXTVAL PRIMARY KEY,
+    user_id          NUMBER NOT NULL REFERENCES app_user(user_id),
+    role_code        VARCHAR2(30) NOT NULL CHECK (role_code IN (
+                       'MANAGEMENT','L1_APPROVER','L2_APPROVER','L3_ADMIN',
+                       'DATA_PROVIDER','METRIC_OWNER','SYSTEM_ADMIN')),
+    region_id        NUMBER REFERENCES region_master(region_id),
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    effective_from   DATE NOT NULL,
+    effective_to     DATE,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL,
+    CONSTRAINT uq_user_role_region UNIQUE (user_id, role_code, region_id)
+);
+
+CREATE INDEX idx_urm_user   ON user_role_mapping(user_id);
+CREATE INDEX idx_urm_role   ON user_role_mapping(role_code);
+CREATE INDEX idx_urm_region ON user_role_mapping(region_id);
+
+-- ============================================================
+-- KRI CONFIGURATION
+-- ============================================================
+
+CREATE TABLE kri_configuration (
+    config_id          NUMBER DEFAULT seq_kri_config_id.NEXTVAL PRIMARY KEY,
+    kri_id             NUMBER NOT NULL REFERENCES kri_master(kri_id),
+    dimension_id       NUMBER NOT NULL REFERENCES control_dimension_master(dimension_id),
+    sla_days           NUMBER(3) DEFAULT 3 NOT NULL,
+    variance_threshold NUMBER(5,2) DEFAULT 10.00 NOT NULL,
+    rag_green_max      NUMBER(5,2),
+    rag_amber_max      NUMBER(5,2),
+    requires_evidence  NUMBER(1) DEFAULT 1 NOT NULL,
+    requires_approval  NUMBER(1) DEFAULT 1 NOT NULL,
+    freeze_day         NUMBER(2) DEFAULT 15,
+    is_active          NUMBER(1) DEFAULT 1 NOT NULL,
+    created_dt         TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt         TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by         VARCHAR2(50) NOT NULL,
+    updated_by         VARCHAR2(50) NOT NULL,
+    CONSTRAINT uq_kri_dim UNIQUE (kri_id, dimension_id)
+);
+
+-- ============================================================
+-- KRI ASSIGNMENTS
+-- ============================================================
+
+CREATE TABLE kri_assignment (
+    assignment_id    NUMBER DEFAULT seq_kri_assignment_id.NEXTVAL PRIMARY KEY,
+    kri_id           NUMBER NOT NULL REFERENCES kri_master(kri_id),
+    dimension_id     NUMBER NOT NULL REFERENCES control_dimension_master(dimension_id),
+    role_code        VARCHAR2(30) NOT NULL,
+    assigned_user_id NUMBER NOT NULL REFERENCES app_user(user_id),
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE INDEX idx_ka_kri  ON kri_assignment(kri_id);
+CREATE INDEX idx_ka_user ON kri_assignment(assigned_user_id);
+
+-- ============================================================
+-- DATA SOURCE MAPPING
+-- ============================================================
+
+CREATE TABLE data_source_mapping (
+    source_id        NUMBER DEFAULT seq_data_source_id.NEXTVAL PRIMARY KEY,
+    kri_id           NUMBER NOT NULL REFERENCES kri_master(kri_id),
+    source_name      VARCHAR2(200) NOT NULL,
+    source_type      VARCHAR2(50) CHECK (source_type IN ('DATABASE','FILE','API','MANUAL')),
+    connection_info  VARCHAR2(500),
+    query_template   CLOB,
+    schedule_cron    VARCHAR2(50),
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+-- ============================================================
+-- MONTHLY CONTROL STATUS TRACKER
+-- ============================================================
+
+CREATE TABLE monthly_control_status (
+    status_id        NUMBER DEFAULT seq_monthly_status_id.NEXTVAL PRIMARY KEY,
+    kri_id           NUMBER NOT NULL REFERENCES kri_master(kri_id),
+    dimension_id     NUMBER NOT NULL REFERENCES control_dimension_master(dimension_id),
+    period_year      NUMBER(4) NOT NULL,
+    period_month     NUMBER(2) NOT NULL,
+    status           VARCHAR2(20) DEFAULT 'NOT_STARTED' CHECK (status IN (
+                       'NOT_STARTED','IN_PROGRESS','PENDING_APPROVAL',
+                       'APPROVED','REWORK','SLA_BREACHED','COMPLETED')),
+    rag_status       VARCHAR2(10) CHECK (rag_status IN ('GREEN','AMBER','RED')),
+    sla_due_dt       TIMESTAMP,
+    sla_met          NUMBER(1),
+    completed_dt     TIMESTAMP,
+    assigned_to      NUMBER REFERENCES app_user(user_id),
+    current_approver NUMBER REFERENCES app_user(user_id),
+    approval_level   VARCHAR2(10) CHECK (approval_level IN ('L1','L2','L3')),
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL,
+    CONSTRAINT uq_monthly_kri_dim UNIQUE (kri_id, dimension_id, period_year, period_month)
+);
+
+CREATE INDEX idx_mcs_period ON monthly_control_status(period_year, period_month);
+CREATE INDEX idx_mcs_status ON monthly_control_status(status);
+CREATE INDEX idx_mcs_rag    ON monthly_control_status(rag_status);
+
+-- ============================================================
+-- METRIC VALUES
+-- ============================================================
+
+CREATE TABLE metric_values (
+    metric_id        NUMBER DEFAULT seq_metric_value_id.NEXTVAL PRIMARY KEY,
+    kri_id           NUMBER NOT NULL REFERENCES kri_master(kri_id),
+    dimension_id     NUMBER NOT NULL REFERENCES control_dimension_master(dimension_id),
+    period_year      NUMBER(4) NOT NULL,
+    period_month     NUMBER(2) NOT NULL,
+    current_value    NUMBER(18,4),
+    previous_value   NUMBER(18,4),
+    variance_pct     NUMBER(8,4),
+    variance_status  VARCHAR2(10) CHECK (variance_status IN ('PASS','FAIL')),
+    source_id        NUMBER REFERENCES data_source_mapping(source_id),
+    captured_dt      TIMESTAMP DEFAULT SYSTIMESTAMP,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE INDEX idx_mv_kri_period ON metric_values(kri_id, period_year, period_month);
+
+-- ============================================================
+-- APPROVAL AUDIT TRAIL
+-- ============================================================
+
+CREATE TABLE approval_audit_trail (
+    audit_id         NUMBER DEFAULT seq_approval_audit_id.NEXTVAL PRIMARY KEY,
+    status_id        NUMBER NOT NULL REFERENCES monthly_control_status(status_id),
+    action           VARCHAR2(30) NOT NULL CHECK (action IN (
+                       'SUBMITTED','L1_APPROVED','L1_REJECTED','L1_REWORK',
+                       'L2_APPROVED','L2_REJECTED','L2_REWORK',
+                       'L3_APPROVED','L3_REJECTED','L3_REWORK',
+                       'ESCALATED','RECALLED','OVERRIDDEN')),
+    performed_by     NUMBER NOT NULL REFERENCES app_user(user_id),
+    performed_dt     TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    comments         VARCHAR2(2000),
+    previous_status  VARCHAR2(20),
+    new_status       VARCHAR2(20),
+    ip_address       VARCHAR2(50),
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE INDEX idx_aat_status ON approval_audit_trail(status_id);
+CREATE INDEX idx_aat_action ON approval_audit_trail(action);
+CREATE INDEX idx_aat_user   ON approval_audit_trail(performed_by);
+
+-- ============================================================
+-- EVIDENCE MANAGEMENT
+-- ============================================================
+
+CREATE TABLE evidence_metadata (
+    evidence_id      NUMBER DEFAULT seq_evidence_id.NEXTVAL PRIMARY KEY,
+    kri_id           NUMBER NOT NULL REFERENCES kri_master(kri_id),
+    dimension_id     NUMBER NOT NULL REFERENCES control_dimension_master(dimension_id),
+    period_year      NUMBER(4) NOT NULL,
+    period_month     NUMBER(2) NOT NULL,
+    file_name        VARCHAR2(500) NOT NULL,
+    file_type        VARCHAR2(10) CHECK (file_type IN ('xlsx','msg','pdf','pptx','csv','docx')),
+    file_size_bytes  NUMBER,
+    s3_bucket        VARCHAR2(200),
+    s3_key           VARCHAR2(500),
+    version_number   NUMBER(5) DEFAULT 1 NOT NULL,
+    is_locked        NUMBER(1) DEFAULT 0 NOT NULL,
+    locked_dt        TIMESTAMP,
+    locked_by        VARCHAR2(50),
+    uploaded_by      NUMBER NOT NULL REFERENCES app_user(user_id),
+    uploaded_dt      TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    metadata_json    CLOB,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE INDEX idx_ev_kri_period ON evidence_metadata(kri_id, period_year, period_month);
+
+CREATE TABLE evidence_version_audit (
+    version_id       NUMBER DEFAULT seq_evidence_version_id.NEXTVAL PRIMARY KEY,
+    evidence_id      NUMBER NOT NULL REFERENCES evidence_metadata(evidence_id),
+    version_number   NUMBER(5) NOT NULL,
+    s3_key           VARCHAR2(500) NOT NULL,
+    file_size_bytes  NUMBER,
+    action           VARCHAR2(20) CHECK (action IN ('UPLOAD','REPLACE','DELETE','LOCK','UNLOCK')),
+    performed_by     NUMBER NOT NULL REFERENCES app_user(user_id),
+    performed_dt     TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    comments         VARCHAR2(500),
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+-- ============================================================
+-- MAKER-CHECKER SUBMISSIONS
+-- ============================================================
+
+CREATE TABLE maker_checker_submission (
+    submission_id    NUMBER DEFAULT seq_maker_submission_id.NEXTVAL PRIMARY KEY,
+    status_id        NUMBER NOT NULL REFERENCES monthly_control_status(status_id),
+    evidence_id      NUMBER REFERENCES evidence_metadata(evidence_id),
+    submitted_by     NUMBER NOT NULL REFERENCES app_user(user_id),
+    submitted_dt     TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    submission_notes CLOB,
+    l1_approver_id   NUMBER REFERENCES app_user(user_id),
+    l1_action        VARCHAR2(20) CHECK (l1_action IN ('APPROVED','REJECTED','REWORK')),
+    l1_action_dt     TIMESTAMP,
+    l1_comments      VARCHAR2(2000),
+    l2_approver_id   NUMBER REFERENCES app_user(user_id),
+    l2_action        VARCHAR2(20) CHECK (l2_action IN ('APPROVED','REJECTED','REWORK')),
+    l2_action_dt     TIMESTAMP,
+    l2_comments      VARCHAR2(2000),
+    l3_approver_id   NUMBER REFERENCES app_user(user_id),
+    l3_action        VARCHAR2(20) CHECK (l3_action IN ('APPROVED','REJECTED','REWORK')),
+    l3_action_dt     TIMESTAMP,
+    l3_comments      VARCHAR2(2000),
+    final_status     VARCHAR2(20) DEFAULT 'PENDING' CHECK (final_status IN (
+                       'PENDING','L1_PENDING','L2_PENDING','L3_PENDING',
+                       'APPROVED','REJECTED','REWORK')),
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE INDEX idx_mcs_sub_status ON maker_checker_submission(final_status);
+
+-- ============================================================
+-- VARIANCE SUBMISSIONS
+-- ============================================================
+
+CREATE TABLE variance_submission (
+    variance_id      NUMBER DEFAULT seq_variance_submission_id.NEXTVAL PRIMARY KEY,
+    metric_id        NUMBER NOT NULL REFERENCES metric_values(metric_id),
+    status_id        NUMBER REFERENCES monthly_control_status(status_id),
+    variance_pct     NUMBER(8,4) NOT NULL,
+    commentary       CLOB NOT NULL,
+    submitted_by     NUMBER NOT NULL REFERENCES app_user(user_id),
+    submitted_dt     TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    review_status    VARCHAR2(20) DEFAULT 'PENDING' CHECK (review_status IN (
+                       'PENDING','APPROVED','REJECTED','REWORK')),
+    reviewed_by      NUMBER REFERENCES app_user(user_id),
+    reviewed_dt      TIMESTAMP,
+    review_comments  VARCHAR2(2000),
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+-- ============================================================
+-- KRI COMMENTS
+-- ============================================================
+
+CREATE TABLE kri_comments (
+    comment_id       NUMBER DEFAULT seq_kri_comment_id.NEXTVAL PRIMARY KEY,
+    kri_id           NUMBER NOT NULL REFERENCES kri_master(kri_id),
+    dimension_id     NUMBER REFERENCES control_dimension_master(dimension_id),
+    status_id        NUMBER REFERENCES monthly_control_status(status_id),
+    comment_text     CLOB NOT NULL,
+    comment_type     VARCHAR2(20) DEFAULT 'GENERAL' CHECK (comment_type IN (
+                       'GENERAL','APPROVAL','REWORK','ESCALATION','VARIANCE')),
+    parent_comment_id NUMBER REFERENCES kri_comments(comment_id),
+    posted_by        NUMBER NOT NULL REFERENCES app_user(user_id),
+    posted_dt        TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    is_resolved      NUMBER(1) DEFAULT 0,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+-- ============================================================
+-- ESCALATION CONFIGURATION
+-- ============================================================
+
+CREATE TABLE escalation_config (
+    config_id        NUMBER DEFAULT seq_escalation_config_id.NEXTVAL PRIMARY KEY,
+    region_id        NUMBER REFERENCES region_master(region_id),
+    escalation_type  VARCHAR2(30) NOT NULL CHECK (escalation_type IN (
+                       'SLA_BREACH','APPROVAL_DELAY','EVIDENCE_MISSING','VARIANCE_UNRESOLVED')),
+    threshold_hours  NUMBER(5) DEFAULT 72 NOT NULL,
+    reminder_hours   NUMBER(5) DEFAULT 24 NOT NULL,
+    max_reminders    NUMBER(3) DEFAULT 3 NOT NULL,
+    escalate_to_role VARCHAR2(30) NOT NULL,
+    email_template   CLOB,
+    is_active        NUMBER(1) DEFAULT 1 NOT NULL,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+-- ============================================================
+-- EMAIL AUDIT
+-- ============================================================
+
+CREATE TABLE email_audit (
+    email_id         NUMBER DEFAULT seq_email_audit_id.NEXTVAL PRIMARY KEY,
+    recipient_email  VARCHAR2(200) NOT NULL,
+    recipient_name   VARCHAR2(200),
+    email_type       VARCHAR2(50) NOT NULL,
+    subject          VARCHAR2(500) NOT NULL,
+    body             CLOB,
+    status           VARCHAR2(20) DEFAULT 'QUEUED' CHECK (status IN ('QUEUED','SENT','FAILED','BOUNCED')),
+    sent_dt          TIMESTAMP,
+    error_message    VARCHAR2(1000),
+    related_kri_id   NUMBER REFERENCES kri_master(kri_id),
+    related_status_id NUMBER REFERENCES monthly_control_status(status_id),
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+-- ============================================================
+-- SCHEDULER LOCK TABLE
+-- ============================================================
+
+CREATE TABLE scheduler_lock (
+    lock_id          NUMBER DEFAULT seq_scheduler_lock_id.NEXTVAL PRIMARY KEY,
+    job_name         VARCHAR2(100) NOT NULL UNIQUE,
+    locked_by        VARCHAR2(100) NOT NULL,
+    locked_at        TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    expires_at       TIMESTAMP NOT NULL,
+    is_locked        NUMBER(1) DEFAULT 1 NOT NULL
+);
+
+-- ============================================================
+-- NOTIFICATIONS
+-- ============================================================
+
+CREATE TABLE notification (
+    notification_id  NUMBER DEFAULT seq_notification_id.NEXTVAL PRIMARY KEY,
+    user_id          NUMBER NOT NULL REFERENCES app_user(user_id),
+    title            VARCHAR2(300) NOT NULL,
+    message          VARCHAR2(2000) NOT NULL,
+    notification_type VARCHAR2(30) CHECK (notification_type IN (
+                       'APPROVAL_REQUEST','SLA_WARNING','ESCALATION',
+                       'REWORK','EVIDENCE_REQUIRED','SYSTEM','VARIANCE')),
+    is_read          NUMBER(1) DEFAULT 0 NOT NULL,
+    link_url         VARCHAR2(500),
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+CREATE INDEX idx_notif_user ON notification(user_id, is_read);
+
+-- ============================================================
+-- SAVED VIEWS
+-- ============================================================
+
+CREATE TABLE saved_view (
+    view_id          NUMBER DEFAULT seq_saved_view_id.NEXTVAL PRIMARY KEY,
+    user_id          NUMBER NOT NULL REFERENCES app_user(user_id),
+    view_name        VARCHAR2(200) NOT NULL,
+    view_type        VARCHAR2(30) NOT NULL,
+    filters_json     CLOB,
+    is_default       NUMBER(1) DEFAULT 0,
+    created_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    updated_dt       TIMESTAMP DEFAULT SYSTIMESTAMP NOT NULL,
+    created_by       VARCHAR2(50) NOT NULL,
+    updated_by       VARCHAR2(50) NOT NULL
+);
+
+-- ============================================================
+-- SEED DATA
+-- ============================================================
+
+-- Regions
+INSERT INTO region_master (region_code, region_name, created_by, updated_by) VALUES ('UK', 'United Kingdom', 'SYSTEM', 'SYSTEM');
+INSERT INTO region_master (region_code, region_name, created_by, updated_by) VALUES ('SGP', 'Singapore', 'SYSTEM', 'SYSTEM');
+INSERT INTO region_master (region_code, region_name, created_by, updated_by) VALUES ('CEP', 'Central Europe', 'SYSTEM', 'SYSTEM');
+
+-- Control Dimensions (7 tabs)
+INSERT INTO control_dimension_master (dimension_code, dimension_name, display_order, created_by, updated_by) VALUES ('DATA_PROVIDER_SLA', 'Data Provider SLA', 1, 'SYSTEM', 'SYSTEM');
+INSERT INTO control_dimension_master (dimension_code, dimension_name, display_order, created_by, updated_by) VALUES ('COMPLETENESS_ACCURACY', 'Completeness & Accuracy', 2, 'SYSTEM', 'SYSTEM');
+INSERT INTO control_dimension_master (dimension_code, dimension_name, display_order, created_by, updated_by) VALUES ('MATERIAL_PREPARER', 'Material Preparer', 3, 'SYSTEM', 'SYSTEM');
+INSERT INTO control_dimension_master (dimension_code, dimension_name, display_order, created_by, updated_by) VALUES ('VARIANCE_ANALYSIS', 'Variance Analysis', 4, 'SYSTEM', 'SYSTEM');
+INSERT INTO control_dimension_master (dimension_code, dimension_name, display_order, created_by, updated_by) VALUES ('REVIEWS', 'Reviews', 5, 'SYSTEM', 'SYSTEM');
+INSERT INTO control_dimension_master (dimension_code, dimension_name, display_order, created_by, updated_by) VALUES ('ADJ_TRACKING', 'Adjustments Tracking', 6, 'SYSTEM', 'SYSTEM');
+INSERT INTO control_dimension_master (dimension_code, dimension_name, display_order, created_by, updated_by) VALUES ('CHANGE_GOVERNANCE', 'Change Governance', 7, 'SYSTEM', 'SYSTEM');
+
+-- KRI Categories
+INSERT INTO kri_category_master (category_code, category_name, created_by, updated_by) VALUES ('MARKET_RISK', 'Market Risk', 'SYSTEM', 'SYSTEM');
+INSERT INTO kri_category_master (category_code, category_name, created_by, updated_by) VALUES ('CREDIT_RISK', 'Credit Risk', 'SYSTEM', 'SYSTEM');
+INSERT INTO kri_category_master (category_code, category_name, created_by, updated_by) VALUES ('OPERATIONAL_RISK', 'Operational Risk', 'SYSTEM', 'SYSTEM');
+INSERT INTO kri_category_master (category_code, category_name, created_by, updated_by) VALUES ('LIQUIDITY_RISK', 'Liquidity Risk', 'SYSTEM', 'SYSTEM');
+INSERT INTO kri_category_master (category_code, category_name, created_by, updated_by) VALUES ('REGULATORY', 'Regulatory Compliance', 'SYSTEM', 'SYSTEM');
+
+-- Escalation defaults
+INSERT INTO escalation_config (escalation_type, threshold_hours, reminder_hours, max_reminders, escalate_to_role, created_by, updated_by) VALUES ('SLA_BREACH', 72, 24, 3, 'L3_ADMIN', 'SYSTEM', 'SYSTEM');
+INSERT INTO escalation_config (escalation_type, threshold_hours, reminder_hours, max_reminders, escalate_to_role, created_by, updated_by) VALUES ('APPROVAL_DELAY', 72, 24, 3, 'L2_APPROVER', 'SYSTEM', 'SYSTEM');
+INSERT INTO escalation_config (escalation_type, threshold_hours, reminder_hours, max_reminders, escalate_to_role, created_by, updated_by) VALUES ('EVIDENCE_MISSING', 48, 24, 2, 'L1_APPROVER', 'SYSTEM', 'SYSTEM');
+
+COMMIT;

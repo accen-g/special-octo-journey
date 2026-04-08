@@ -1,9 +1,12 @@
 """Service layer — business logic for BIC-CCD."""
+import logging
 from datetime import datetime, timedelta, date
 from typing import Optional, List
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 import hashlib, secrets, json
+
+logger = logging.getLogger("bic_ccd.services")
 
 from app.repositories import (
     RegionRepository, CategoryRepository, DimensionRepository,
@@ -19,7 +22,34 @@ from app.schemas import (
     MakerCheckerSubmitRequest, MakerCheckerActionRequest,
     VarianceSubmitRequest, ApprovalActionRequest, CommentCreate,
 )
-from app.models import MakerCheckerSubmission
+from app.models import MakerCheckerSubmission, AppUser
+from app.utils import compute_pending_with
+
+
+# ─── Status Transition Guard ────────────────────────────────
+# Valid transitions: {from_status: {action: to_status}}
+# Actions are the normalised strings used in MakerCheckerService (APPROVED, REWORK, REJECTED)
+_VALID_TRANSITIONS: dict[str, set[str]] = {
+    "NOT_STARTED":      {"start"},
+    "IN_PROGRESS":      {"SUBMIT"},
+    "PENDING_APPROVAL": {"APPROVED", "REWORK", "REJECTED", "ESCALATE"},
+    "REWORK":           {"SUBMIT"},
+    "REJECTED":         set(),          # terminal
+    "COMPLETED":        set(),          # terminal
+    "APPROVED":         set(),          # terminal
+    "SLA_BREACHED":     {"SUBMIT"},     # late submission still allowed
+}
+
+
+def validate_transition(from_status: str, action: str, is_admin: bool = False) -> bool:
+    """Return True if *action* is valid from *from_status*.
+
+    Admins always pass (override intent); a warning should be logged by the caller.
+    """
+    if is_admin:
+        return True
+    allowed = _VALID_TRANSITIONS.get(from_status, set())
+    return action.upper() in allowed
 
 
 # ─── Auth Service ───────────────────────────────────────────
@@ -110,9 +140,10 @@ class KriService:
         self.db = db
 
     def list_kris(self, region_id=None, category_id=None, page=1, page_size=50):
+        from app.utils import sort_kris
         items, total = self.kri_repo.get_all(region_id, category_id, True, page, page_size)
         results = []
-        for kri in items:
+        for kri in sort_kris(items):
             results.append({
                 "kri_id": kri.kri_id,
                 "kri_code": kri.kri_code,
@@ -282,8 +313,55 @@ class MakerCheckerService:
 
         return sub
 
+    def _resolve_escalation_target(
+        self, sub: MakerCheckerSubmission, current_level: str, next_approver_id_hint: Optional[int]
+    ) -> int:
+        """Resolve the correct escalation target user ID.
+
+        Priority order:
+          1. current pending-with user at the NEXT level (already assigned)
+          2. next_approver_id_hint from the request (explicit override)
+          3. assignment rules lookup for the next level role
+
+        Raises HTTP 422 if no target can be resolved (graceful edge case).
+        """
+        # Determine which level we are escalating TO
+        next_level_map = {"L1": "L2", "L2": "L3"}
+        next_level = next_level_map.get(current_level)
+        if not next_level:
+            raise HTTPException(422, "L3 submissions cannot be escalated further")
+
+        next_role_map = {"L2": "L2_APPROVER", "L3": "L3_ADMIN"}
+        next_role = next_role_map[next_level]
+
+        # 1. Already-assigned approver for the next level
+        existing = sub.l2_approver_id if next_level == "L2" else sub.l3_approver_id
+        if existing:
+            logger.debug("Escalation target resolved from existing FK: user #%s", existing)
+            return existing
+
+        # 2. Explicit hint from caller (frontend may pass next_approver_id)
+        if next_approver_id_hint:
+            logger.debug("Escalation target resolved from request hint: user #%s", next_approver_id_hint)
+            return next_approver_id_hint
+
+        # 3. Assignment rule lookup
+        status_obj = self.status_repo.get_by_id(sub.status_id)
+        kri_id = status_obj.kri_id if status_obj else None
+        resolved = self.assign_svc.resolve_approver(role_code=next_role, kri_id=kri_id)
+        if resolved:
+            logger.debug("Escalation target resolved from assignment rules: user #%s", resolved)
+            return resolved
+
+        # Edge case: no approver found — fail gracefully
+        raise HTTPException(
+            422,
+            f"No {next_level} approver found for escalation. "
+            f"Please assign an {next_role} approver or specify next_approver_id."
+        )
+
     def process_action(self, submission_id: int, action_req: MakerCheckerActionRequest,
-                       performed_by: int) -> MakerCheckerSubmission:
+                       performed_by: int, is_admin: bool = False) -> MakerCheckerSubmission:
         sub = self.mc_repo.get_by_id(submission_id)
         if not sub:
             raise HTTPException(404, "Submission not found")
@@ -291,64 +369,154 @@ class MakerCheckerService:
         action = action_req.action.upper()
         level = sub.final_status.replace("_PENDING", "")  # L1, L2, L3
 
+        # ── 2H: Status transition guard ──────────────────────
+        if not validate_transition("PENDING_APPROVAL", action, is_admin=is_admin):
+            if is_admin:
+                logger.warning(
+                    "Admin override: transition PENDING_APPROVAL → %s on submission %s by user %s",
+                    action, submission_id, performed_by,
+                )
+            else:
+                raise HTTPException(422, f"Action '{action}' is not valid from PENDING_APPROVAL status")
+
+        now = datetime.utcnow()
+
         if level == "L1":
-            if action == "ESCALATE":
-                escalate_to = self._resolve_escalation_target(sub, "L2_APPROVER", action_req.next_approver_id)
-                sub.l2_approver_id = escalate_to
+            sub.l1_action = action
+            sub.l1_action_dt = now
+            sub.l1_comments = action_req.comments
+            if action == "APPROVED":
+                if action_req.next_approver_id:
+                    sub.l2_approver_id = action_req.next_approver_id
+                    sub.final_status = "L2_PENDING"
+                    self._notify(action_req.next_approver_id, sub, "L2")
+                else:
+                    sub.final_status = "APPROVED"
+            elif action == "REWORK":
+                sub.final_status = "REWORK"
+            elif action == "REJECTED":
+                sub.final_status = "REJECTED"
+            elif action == "ESCALATE":
+                # Dynamically resolve the correct L2 user
+                target_l2 = self._resolve_escalation_target(sub, "L1", action_req.next_approver_id)
+                sub.l2_approver_id = target_l2
                 sub.final_status = "L2_PENDING"
-                if escalate_to:
-                    self._notify(escalate_to, sub, "L2 (Escalated)")
-            else:
-                sub.l1_action = action
-                sub.l1_action_dt = datetime.utcnow()
-                sub.l1_comments = action_req.comments
-                if action == "APPROVED":
-                    if action_req.next_approver_id:
-                        sub.l2_approver_id = action_req.next_approver_id
-                        sub.final_status = "L2_PENDING"
-                        self._notify(action_req.next_approver_id, sub, "L2")
-                    else:
-                        sub.final_status = "APPROVED"
-                elif action in ("REJECTED", "REWORK"):
-                    sub.final_status = "REWORK" if action == "REWORK" else "REJECTED"
+                pending_with = compute_pending_with(sub)
+                logger.info(
+                    "Submission %s escalated from L1 to L2 (user #%s) by user #%s. Previously pending with: %s",
+                    submission_id, target_l2, performed_by, pending_with,
+                )
+                self._notify(target_l2, sub, "L2")
+                # Override action label for audit — use canonical ESCALATED
+                action = "ESCALATED"
+                action_req = type(action_req)(
+                    action="ESCALATED",
+                    comments=action_req.comments or f"Escalated to L2 (user #{target_l2})",
+                    next_approver_id=target_l2,
+                )
+
         elif level == "L2":
-            if action == "ESCALATE":
-                escalate_to = self._resolve_escalation_target(sub, "L3_ADMIN", action_req.next_approver_id)
-                sub.l3_approver_id = escalate_to
+            sub.l2_action = action
+            sub.l2_action_dt = now
+            sub.l2_comments = action_req.comments
+            if action == "APPROVED":
+                if action_req.next_approver_id:
+                    sub.l3_approver_id = action_req.next_approver_id
+                    sub.final_status = "L3_PENDING"
+                    self._notify(action_req.next_approver_id, sub, "L3")
+                else:
+                    sub.final_status = "APPROVED"
+            elif action == "REWORK":
+                sub.final_status = "REWORK"
+            elif action == "REJECTED":
+                sub.l2_action = "REJECTED"
+                sub.l1_action = None
+                sub.l1_action_dt = None
+                sub.final_status = "L1_PENDING"
+                if sub.l1_approver_id:
+                    self._notify(sub.l1_approver_id, sub, "L1")
+            elif action == "ESCALATE":
+                # Dynamically resolve the correct L3 user
+                target_l3 = self._resolve_escalation_target(sub, "L2", action_req.next_approver_id)
+                sub.l3_approver_id = target_l3
                 sub.final_status = "L3_PENDING"
-                if escalate_to:
-                    self._notify(escalate_to, sub, "L3 (Escalated)")
-            else:
-                sub.l2_action = action
-                sub.l2_action_dt = datetime.utcnow()
-                sub.l2_comments = action_req.comments
-                if action == "APPROVED":
-                    if action_req.next_approver_id:
-                        sub.l3_approver_id = action_req.next_approver_id
-                        sub.final_status = "L3_PENDING"
-                        self._notify(action_req.next_approver_id, sub, "L3")
-                    else:
-                        sub.final_status = "APPROVED"
-                elif action in ("REJECTED", "REWORK"):
-                    sub.final_status = "REWORK" if action == "REWORK" else "REJECTED"
+                pending_with = compute_pending_with(sub)
+                logger.info(
+                    "Submission %s escalated from L2 to L3 (user #%s) by user #%s. Previously pending with: %s",
+                    submission_id, target_l3, performed_by, pending_with,
+                )
+                self._notify(target_l3, sub, "L3")
+                action = "ESCALATED"
+                action_req = type(action_req)(
+                    action="ESCALATED",
+                    comments=action_req.comments or f"Escalated to L3 (user #{target_l3})",
+                    next_approver_id=target_l3,
+                )
+
         elif level == "L3":
             sub.l3_action = action
-            sub.l3_action_dt = datetime.utcnow()
+            sub.l3_action_dt = now
             sub.l3_comments = action_req.comments
-            sub.final_status = "APPROVED" if action == "APPROVED" else ("REWORK" if action == "REWORK" else "REJECTED")
+            if action == "APPROVED":
+                sub.final_status = "APPROVED"
+            elif action == "REWORK":
+                sub.final_status = "REWORK"
+            elif action == "REJECTED":
+                sub.l3_action = "REJECTED"
+                sub.l2_action = None
+                sub.l2_action_dt = None
+                sub.l1_action = None
+                sub.l1_action_dt = None
+                sub.final_status = "L1_PENDING"
+                if sub.l1_approver_id:
+                    self._notify(sub.l1_approver_id, sub, "L1")
+            elif action == "ESCALATE":
+                # L3 escalation: re-assign within L3 to a different SYSTEM_ADMIN
+                if not action_req.next_approver_id:
+                    raise HTTPException(
+                        422,
+                        "L3 escalation requires an explicit next_approver_id (another SYSTEM_ADMIN or L3 user)."
+                    )
+                original_l3 = sub.l3_approver_id
+                sub.l3_approver_id = action_req.next_approver_id
+                sub.l3_action = None  # reset so new L3 can act
+                sub.l3_action_dt = None
+                sub.final_status = "L3_PENDING"
+                logger.info(
+                    "Submission %s re-assigned at L3 from user #%s to user #%s by user #%s",
+                    submission_id, original_l3, action_req.next_approver_id, performed_by,
+                )
+                self._notify(action_req.next_approver_id, sub, "L3")
+                action = "ESCALATED"
+                action_req = type(action_req)(
+                    action="ESCALATED",
+                    comments=action_req.comments or f"Re-assigned at L3 from user #{original_l3} to user #{action_req.next_approver_id}",
+                    next_approver_id=action_req.next_approver_id,
+                )
 
-        # Update monthly control status
+        # ── Update monthly control status ────────────────────
         status_obj = self.status_repo.get_by_id(sub.status_id)
         if sub.final_status == "APPROVED":
             self.status_repo.update_status(status_obj, "COMPLETED")
         elif sub.final_status == "REWORK":
             self.status_repo.update_status(status_obj, "REWORK")
         elif sub.final_status == "REJECTED":
-            self.status_repo.update_status(status_obj, "REWORK")
+            self.status_repo.update_status(status_obj, "REJECTED")
+        elif sub.final_status == "L1_PENDING":
+            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L1", sub.l1_approver_id)
+
+        # ── Write audit trail entry ──────────────────────────
+        # Use canonical action values: SUBMITTED | L1_APPROVED | L1_REJECTED | L1_REWORK | ESCALATED | ...
+        # For ESCALATE action we already set action = "ESCALATED" above.
+        # For normal approvals/rejections we compose "L1_APPROVED" style.
+        if action == "ESCALATED":
+            audit_action = "ESCALATED"
+        else:
+            audit_action = f"{level}_{action}"  # e.g. L1_APPROVED, L2_REWORK
 
         self.audit_repo.create({
             "status_id": sub.status_id,
-            "action": f"{level}_{action}",
+            "action": audit_action,
             "performed_by": performed_by,
             "comments": action_req.comments,
             "previous_status": f"{level}_PENDING",
@@ -358,26 +526,6 @@ class MakerCheckerService:
         })
 
         return self.mc_repo.update(sub)
-
-    def _resolve_escalation_target(self, sub: MakerCheckerSubmission, role_code: str,
-                                    explicit_id: Optional[int] = None) -> Optional[int]:
-        """Find the best escalation target: explicit override > KRI assignment > assignment rule."""
-        if explicit_id:
-            return explicit_id
-        # Look for KRI-specific assignment in kri_assignment table
-        from app.models import KriAssignment, MonthlyControlStatus
-        status_obj = self.status_repo.get_by_id(sub.status_id)
-        if status_obj:
-            assignment = self.db.query(KriAssignment).filter(
-                KriAssignment.kri_id == status_obj.kri_id,
-                KriAssignment.role_code == role_code,
-                KriAssignment.is_active == True,
-            ).first()
-            if assignment:
-                return assignment.assigned_user_id
-            # Fall back to assignment rules
-            return self.assign_svc.resolve_approver(role_code=role_code, kri_id=status_obj.kri_id)
-        return None
 
     def _notify(self, user_id: int, sub: MakerCheckerSubmission, level: str):
         self.notif_repo.create({
@@ -398,6 +546,8 @@ class VarianceService:
         self.db = db
 
     def submit_variance(self, req: VarianceSubmitRequest, submitted_by: int):
+        metric = self.db.query(MetricRepository).filter_by(metric_id=req.metric_id).first() if False else None
+        # Just use metric_id from request
         from app.models import MetricValues
         metric = self.db.query(MetricValues).filter(MetricValues.metric_id == req.metric_id).first()
         if not metric:
@@ -430,11 +580,64 @@ class VarianceService:
 class EvidenceService:
     def __init__(self, db: Session):
         self.ev_repo = EvidenceRepository(db)
+        self.status_repo = MonthlyStatusRepository(db)
         self.db = db
+
+    def _check_freeze(self, kri_id: int, dimension_id: int, year: int, month: int):
+        """Raise HTTP 423 if today is past the freeze date for this KRI/dimension/period."""
+        from app.utils.sla import calculate_sla_dates
+        from app.models import KriMaster, KriConfiguration, ControlDimensionMaster
+
+        kri = self.db.query(KriMaster).filter(KriMaster.kri_id == kri_id).first()
+        if not kri:
+            return  # KRI not found — let the caller handle 404
+
+        cfg = self.db.query(KriConfiguration).filter(
+            KriConfiguration.kri_id == kri_id,
+            KriConfiguration.dimension_id == dimension_id,
+        ).first()
+
+        dim = self.db.query(ControlDimensionMaster).filter(
+            ControlDimensionMaster.dimension_id == dimension_id
+        ).first()
+
+        sla_start_day = cfg.sla_start_day if cfg else None
+        sla_end_day   = cfg.sla_end_day   if cfg else None
+        sla_days      = cfg.sla_days       if cfg else 3
+
+        _, _, freeze_date = calculate_sla_dates(
+            kri_is_dcrm=kri.is_dcrm,
+            dimension_code=dim.dimension_code if dim else "",
+            year=year,
+            month=month,
+            sla_start_day=sla_start_day,
+            sla_end_day=sla_end_day,
+            sla_days=sla_days,
+        )
+
+        today = date.today()
+        if today > freeze_date:
+            raise HTTPException(
+                status_code=423,
+                detail={
+                    "error": "FREEZE_DATE_PASSED",
+                    "message": f"Evidence upload is frozen. Freeze date was {freeze_date.isoformat()}.",
+                    "freeze_date": freeze_date.isoformat(),
+                },
+            )
 
     def upload(self, kri_id: int, dimension_id: int, year: int, month: int,
                file_name: str, file_type: str, file_size: int,
                s3_bucket: str, s3_key: str, uploaded_by: int, region_id: int = None):
+        """Create evidence record with status=DRAFT (temp S3 prefix).
+
+        The record stays DRAFT until the caller invokes submit().
+        """
+        self._check_freeze(kri_id, dimension_id, year, month)
+
+        # Use a temp/ prefix so S3 lifecycle rules can auto-expire abandoned uploads
+        temp_s3_key = s3_key.replace("evidence/", "evidence/temp/", 1) if not s3_key.startswith("evidence/temp/") else s3_key
+
         ev = self.ev_repo.create({
             "kri_id": kri_id,
             "dimension_id": dimension_id,
@@ -444,16 +647,17 @@ class EvidenceService:
             "file_type": file_type,
             "file_size_bytes": file_size,
             "s3_bucket": s3_bucket,
-            "s3_key": s3_key,
+            "s3_key": temp_s3_key,
             "region_id": region_id,
             "uploaded_by": uploaded_by,
+            "evidence_status": "DRAFT",
             "created_by": str(uploaded_by),
             "updated_by": str(uploaded_by),
         })
         self.ev_repo.create_version({
             "evidence_id": ev.evidence_id,
             "version_number": 1,
-            "s3_key": s3_key,
+            "s3_key": temp_s3_key,
             "file_size_bytes": file_size,
             "action": "UPLOAD",
             "performed_by": uploaded_by,
@@ -461,6 +665,153 @@ class EvidenceService:
             "updated_by": str(uploaded_by),
         })
         return ev
+
+    def submit(self, evidence_id: int, submitted_by: int,
+               metric_value: float = None, short_comment: str = None,
+               long_comment: str = None, rag_status: str = None):
+        """Promote evidence from DRAFT → ACTIVE within a single transaction.
+
+        Steps (all-or-nothing):
+          1. Validate freeze date still holds
+          2. Promote S3 key from temp/ → permanent prefix
+          3. Set evidence_status = ACTIVE
+          4. Update linked MonthlyControlStatus metric / rag / status
+          5. Create EvidenceVersionAudit entry with metric, rag, comments
+        """
+        ev = self.ev_repo.get_by_id(evidence_id)
+        if not ev:
+            raise HTTPException(404, "Evidence not found")
+        if ev.evidence_status == "ACTIVE":
+            raise HTTPException(409, "Evidence is already active")
+        if ev.evidence_status == "DELETED":
+            raise HTTPException(410, "Evidence has been deleted")
+
+        self._check_freeze(ev.kri_id, ev.dimension_id, ev.period_year, ev.period_month)
+
+        # Promote S3 key: evidence/temp/... → evidence/...
+        permanent_key = ev.s3_key.replace("evidence/temp/", "evidence/", 1)
+
+        try:
+            # Attempt S3 copy if a real bucket is configured
+            s3_bucket = ev.s3_bucket
+            if s3_bucket and s3_bucket not in ("local", ""):
+                import boto3
+                s3 = boto3.client("s3")
+                s3.copy_object(
+                    Bucket=s3_bucket,
+                    CopySource={"Bucket": s3_bucket, "Key": ev.s3_key},
+                    Key=permanent_key,
+                )
+                s3.delete_object(Bucket=s3_bucket, Key=ev.s3_key)
+
+            # Compute RAG if metric value provided
+            if metric_value is not None and rag_status is None:
+                from app.utils import compute_rag
+                from app.models import KriConfiguration
+                cfg = self.db.query(KriConfiguration).filter(
+                    KriConfiguration.kri_id == ev.kri_id,
+                    KriConfiguration.dimension_id == ev.dimension_id,
+                ).first()
+                rag_status = compute_rag(
+                    metric_value=metric_value,
+                    rag_thresholds=cfg.rag_thresholds if cfg else None,
+                    rag_green_max=cfg.rag_green_max if cfg else None,
+                    rag_amber_max=cfg.rag_amber_max if cfg else None,
+                )
+
+            # Update evidence record
+            ev.s3_key = permanent_key
+            ev.evidence_status = "ACTIVE"
+            ev.updated_by = str(submitted_by)
+
+            # Create version audit entry
+            next_version = (ev.version_number or 1) + 1
+            ev.version_number = next_version
+            self.ev_repo.create_version({
+                "evidence_id": ev.evidence_id,
+                "version_number": next_version,
+                "s3_key": permanent_key,
+                "file_size_bytes": ev.file_size_bytes,
+                "action": "SUBMIT",
+                "performed_by": submitted_by,
+                "metric_value": metric_value,
+                "rag_status": rag_status,
+                "short_comment": short_comment,
+                "long_comment": long_comment,
+                "created_by": str(submitted_by),
+                "updated_by": str(submitted_by),
+            })
+
+            # Update linked MonthlyControlStatus if metric provided
+            if metric_value is not None:
+                from app.models import MonthlyControlStatus, MetricValues
+                mcs = self.db.query(MonthlyControlStatus).filter(
+                    MonthlyControlStatus.kri_id == ev.kri_id,
+                    MonthlyControlStatus.dimension_id == ev.dimension_id,
+                    MonthlyControlStatus.period_year == ev.period_year,
+                    MonthlyControlStatus.period_month == ev.period_month,
+                ).first()
+                if mcs:
+                    mcs.rag_status = rag_status
+                    mcs.updated_by = str(submitted_by)
+
+                mv = self.db.query(MetricValues).filter(
+                    MetricValues.kri_id == ev.kri_id,
+                    MetricValues.dimension_id == ev.dimension_id,
+                    MetricValues.period_year == ev.period_year,
+                    MetricValues.period_month == ev.period_month,
+                ).first()
+                if mv:
+                    mv.current_value = metric_value
+                    mv.variance_status = rag_status
+                    mv.updated_by = str(submitted_by)
+
+            self.db.commit()
+            self.db.refresh(ev)
+            return ev
+
+        except HTTPException:
+            self.db.rollback()
+            raise
+        except Exception as e:
+            self.db.rollback()
+            raise HTTPException(500, f"Evidence submit failed: {e}")
+
+    def generate_download_url(self, evidence_id: int, requesting_user_roles: list) -> dict:
+        """Return a pre-signed S3 URL or a local path token for evidence download."""
+        ev = self.ev_repo.get_by_id(evidence_id)
+        if not ev:
+            raise HTTPException(404, "Evidence not found")
+        if ev.evidence_status == "DELETED":
+            raise HTTPException(410, "Evidence has been deleted")
+
+        allowed_roles = {"DOWNLOAD", "SYSTEM_ADMIN", "DATA_PROVIDER", "MANAGEMENT",
+                         "L1_APPROVER", "L2_APPROVER", "L3_ADMIN", "METRIC_OWNER"}
+        user_roles = {r.get("role_code") for r in requesting_user_roles}
+        if not user_roles.intersection(allowed_roles):
+            raise HTTPException(403, "Insufficient permissions to download evidence")
+
+        s3_bucket = ev.s3_bucket
+        if s3_bucket and s3_bucket not in ("local", ""):
+            try:
+                import boto3
+                s3 = boto3.client("s3")
+                url = s3.generate_presigned_url(
+                    "get_object",
+                    Params={"Bucket": s3_bucket, "Key": ev.s3_key},
+                    ExpiresIn=900,  # 15 minutes
+                )
+                return {"url": url, "expires_in": 900, "file_name": ev.file_name}
+            except Exception as e:
+                raise HTTPException(500, f"Could not generate download URL: {e}")
+
+        # Local storage fallback — return a token the frontend exchanges at /files/
+        return {
+            "url": f"/api/evidence/{evidence_id}/file",
+            "expires_in": None,
+            "file_name": ev.file_name,
+            "local_path": ev.s3_key,
+        }
 
     def lock_evidence(self, evidence_id: int, locked_by: str):
         ev = self.ev_repo.get_by_id(evidence_id)

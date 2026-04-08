@@ -67,6 +67,7 @@ export const controlApi = {
 export const makerCheckerApi = {
   submit: (data: unknown) => api.post('/maker-checker/submit', data),
   pending: (params?: Record<string, unknown>) => api.get('/maker-checker/pending', { params }),
+  history: (params?: Record<string, unknown>) => api.get('/maker-checker/history', { params }),
   action: (id: number, data: unknown) => api.post(`/maker-checker/${id}/action`, data),
   get: (id: number) => api.get(`/maker-checker/${id}`),
 };
@@ -134,4 +135,27 @@ export const assignmentRuleApi = {
   create: (data: unknown) => api.post('/assignment-rules', data),
   update: (id: number, data: unknown) => api.put(`/assignment-rules/${id}`, data),
   remove: (id: number) => api.delete(`/assignment-rules/${id}`),
+};
+
+// ─── Scorecard ──────────────────────────────────────────────
+export const scorecardApi = {
+  list:    (params?: Record<string, unknown>) => api.get('/scorecard', { params }),
+  get:     (id: number) => api.get(`/scorecard/${id}`),
+  create:  (data: unknown) => api.post('/scorecard', data),
+  submit:  (id: number, notes?: string) => api.post(`/scorecard/${id}/submit`, { notes }),
+  approve: (id: number, comments?: string) => api.post(`/scorecard/${id}/approve`, { comments }),
+  reject:  (id: number, comments: string) => api.post(`/scorecard/${id}/reject`, { comments }),
+};
+
+// ─── Admin utilities (Phase 7) ───────────────────────────────
+export const adminApi = {
+  cacheStats:   () => api.get('/admin/cache/stats'),
+  cacheRefresh: (keys?: string[]) => api.post('/admin/cache/refresh', keys ? { keys } : {}),
+  sqlQuery:     (query: string, params?: Record<string, unknown>, maxRows?: number) =>
+    api.post('/admin/sql/query', { query, params, max_rows: maxRows ?? 200 }),
+  // Scheduler triggers
+  triggerMonthlyInit:   (year?: number, month?: number) =>
+    api.post('/admin/scheduler/monthly-init', null, { params: { year, month } }),
+  triggerTimeliness:    () => api.post('/admin/scheduler/timeliness-check'),
+  triggerDcrm:          () => api.post('/admin/scheduler/dcrm-processing'),
 };

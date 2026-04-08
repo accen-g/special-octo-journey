@@ -73,8 +73,8 @@ lookup_router = APIRouter(prefix="/api/lookups", tags=["Lookups"])
 
 @lookup_router.get("/regions")
 def list_regions(db: Session = Depends(get_db)):
-    return [{"region_id": r.region_id, "region_code": r.region_code, "region_name": r.region_name}
-            for r in RegionRepository(db).get_all()]
+    from app.utils.cache import get_cached_regions
+    return get_cached_regions(db)
 
 @lookup_router.get("/categories")
 def list_categories(db: Session = Depends(get_db)):
@@ -83,9 +83,13 @@ def list_categories(db: Session = Depends(get_db)):
 
 @lookup_router.get("/dimensions")
 def list_dimensions(db: Session = Depends(get_db)):
-    return [{"dimension_id": d.dimension_id, "dimension_code": d.dimension_code,
-             "dimension_name": d.dimension_name, "display_order": d.display_order}
-            for d in DimensionRepository(db).get_all()]
+    from app.utils.cache import get_cached_dimensions
+    return get_cached_dimensions(db)
+
+@lookup_router.get("/statuses")
+def list_statuses(db: Session = Depends(get_db)):
+    from app.utils.cache import get_cached_statuses
+    return get_cached_statuses(db)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -303,6 +307,9 @@ def pending_approvals(
     level: str = "L1",
     page: int = 1,
     page_size: int = 50,
+    year: int = Query(default=None),
+    month: int = Query(default=None),
+    region_id: int = Query(default=None),
     db: Session = Depends(get_db),
     user: dict = Depends(require_approvals),
 ):
@@ -311,9 +318,9 @@ def pending_approvals(
     admin_roles = {"L3_ADMIN", "SYSTEM_ADMIN"}
     is_admin = any(r.get("role_code") in admin_roles for r in user.get("roles", []))
     if is_admin:
-        items, total = repo.get_all_pending(level, page, page_size)
+        items, total = repo.get_all_pending(level, page, page_size, year=year, month=month, region_id=region_id)
     else:
-        items, total = repo.get_pending_for_approver(user["user_id"], level, page, page_size)
+        items, total = repo.get_pending_for_approver(user["user_id"], level, page, page_size, year=year, month=month, region_id=region_id)
 
     # Batch-resolve approver names to avoid N+1 queries
     all_approver_ids = {
@@ -328,6 +335,7 @@ def pending_approvals(
     def _enrich(s):
         cs = s.control_status
         kri = cs.kri if cs else None
+        dim = cs.dimension if cs else None
         return {
             "submission_id": s.submission_id,
             "status_id": s.status_id,
@@ -338,11 +346,13 @@ def pending_approvals(
             "submitted_by_name": s.submitter.full_name if s.submitter else f"User #{s.submitted_by}",
             "kri_name": kri.kri_name if kri else None,
             "kri_code": kri.kri_code if kri else None,
+            "dimension_name": dim.dimension_name if dim else None,
             "region_name": kri.region.region_name if kri and kri.region else None,
             "period_year": cs.period_year if cs else None,
             "period_month": cs.period_month if cs else None,
             "sla_due_dt": cs.sla_due_dt if cs else None,
             "sla_met": cs.sla_met if cs else None,
+            "rag_status": cs.rag_status if cs else None,
             "pending_with": compute_pending_with(s),
             "l1_approver_id": s.l1_approver_id,
             "l1_approver_name": approver_map.get(s.l1_approver_id) if s.l1_approver_id else None,
@@ -392,11 +402,9 @@ def all_pending(
             "submitted_by_name": s.submitter.full_name if s.submitter else f"User #{s.submitted_by}",
             "kri_name": kri.kri_name if kri else None,
             "kri_code": kri.kri_code if kri else None,
-            "region_name": kri.region.region_name if kri and kri.region else None,
-            "period_year": cs.period_year if cs else None,
-            "period_month": cs.period_month if cs else None,
             "sla_due_dt": cs.sla_due_dt if cs else None,
             "sla_met": cs.sla_met if cs else None,
+            "rag_status": cs.rag_status if cs else None,
             "pending_with": compute_pending_with(s),
             "l1_approver_id": s.l1_approver_id,
             "l1_approver_name": approver_map.get(s.l1_approver_id) if s.l1_approver_id else None,
@@ -412,21 +420,28 @@ def all_pending(
 
 @mc_router.get("/history")
 def approval_history(
+    level: str = "L1",
     year: int = Query(default=None),
     month: int = Query(default=None),
     page: int = 1,
-    page_size: int = 50,
+    page_size: int = 25,
     db: Session = Depends(get_db),
     user: dict = Depends(require_approvals),
 ):
-    """Return completed/rejected/rework submissions for the current user (or all for admins)."""
-    repo = MakerCheckerRepository(db)
+    """Return completed approval actions for this user, optionally filtered by reporting period."""
     admin_roles = {"L3_ADMIN", "SYSTEM_ADMIN"}
     is_admin = any(r.get("role_code") in admin_roles for r in user.get("roles", []))
-    if is_admin:
-        items, total = repo.get_history_admin(year, month, page, page_size)
-    else:
-        items, total = repo.get_history(user["user_id"], year, month, page, page_size)
+
+    repo = MakerCheckerRepository(db)
+    items, total = repo.get_history_for_approver(
+        user_id=user["user_id"],
+        level=level,
+        is_admin=is_admin,
+        year=year,
+        month=month,
+        page=page,
+        page_size=page_size,
+    )
 
     all_approver_ids = {
         aid for s in items
@@ -437,30 +452,58 @@ def approval_history(
         users_q = db.query(AppUser).filter(AppUser.user_id.in_(all_approver_ids)).all()
         approver_map = {u.user_id: u.full_name for u in users_q}
 
-    def _enrich_hist(s):
+    def _enrich_history(s):
         cs = s.control_status
         kri = cs.kri if cs else None
+        # Surface the action/date/comments relevant to the requested level
+        if level == "L1":
+            action = s.l1_action
+            action_dt = s.l1_action_dt
+            comments = s.l1_comments
+            approver_name = approver_map.get(s.l1_approver_id) if s.l1_approver_id else None
+        elif level == "L2":
+            action = s.l2_action
+            action_dt = s.l2_action_dt
+            comments = s.l2_comments
+            approver_name = approver_map.get(s.l2_approver_id) if s.l2_approver_id else None
+        else:  # L3 / admin — use the most senior action available
+            action = s.l3_action or s.l2_action or s.l1_action
+            action_dt = s.l3_action_dt or s.l2_action_dt or s.l1_action_dt
+            comments = s.l3_comments or s.l2_comments or s.l1_comments
+            approver_name = approver_map.get(s.l3_approver_id) if s.l3_approver_id else None
         return {
             "submission_id": s.submission_id,
             "status_id": s.status_id,
             "kri_id": cs.kri_id if cs else None,
             "kri_name": kri.kri_name if kri else None,
             "kri_code": kri.kri_code if kri else None,
-            "region_name": kri.region.region_name if kri and kri.region else None,
             "period_year": cs.period_year if cs else None,
             "period_month": cs.period_month if cs else None,
             "final_status": s.final_status,
             "submitted_dt": s.submitted_dt,
             "submitted_by": s.submitted_by,
             "submitted_by_name": s.submitter.full_name if s.submitter else f"User #{s.submitted_by}",
+            "action": action,
+            "action_dt": action_dt,
+            "comments": comments,
+            "approver_name": approver_name,
+            "sla_due_dt": cs.sla_due_dt if cs else None,
+            "sla_met": cs.sla_met if cs else None,
             "l1_approver_name": approver_map.get(s.l1_approver_id) if s.l1_approver_id else None,
             "l1_action": s.l1_action,
+            "l1_action_dt": s.l1_action_dt,
+            "l1_comments": s.l1_comments,
             "l2_approver_name": approver_map.get(s.l2_approver_id) if s.l2_approver_id else None,
             "l2_action": s.l2_action,
+            "l2_action_dt": s.l2_action_dt,
+            "l2_comments": s.l2_comments,
             "l3_approver_name": approver_map.get(s.l3_approver_id) if s.l3_approver_id else None,
             "l3_action": s.l3_action,
+            "l3_action_dt": s.l3_action_dt,
+            "l3_comments": s.l3_comments,
         }
-    return {"items": [_enrich_hist(s) for s in items], "total": total, "page": page, "page_size": page_size}
+
+    return {"items": [_enrich_history(s) for s in items], "total": total}
 
 
 @mc_router.post("/{submission_id}/action")
@@ -558,6 +601,148 @@ def get_admin_audit_trail(status_id: int, db: Session = Depends(get_db),
     ]
 
 
+# ── Scheduler trigger endpoints (L3 Admin only) ──────────────────────────────
+
+@admin_override_router.post("/scheduler/monthly-init")
+def admin_trigger_monthly_init(
+    year: Optional[int] = Query(default=None, description="Override year (default: current)"),
+    month: Optional[int] = Query(default=None, description="Override month (default: current)"),
+    _user: dict = Depends(require_data_control),
+):
+    """Manually trigger the monthly_init job for the given period."""
+    from app.scheduler import trigger_monthly_init
+    result = trigger_monthly_init(year=year, month=month)
+    return {"status": "ok", "result": result}
+
+
+@admin_override_router.post("/scheduler/timeliness-check")
+def admin_trigger_timeliness(
+    _user: dict = Depends(require_data_control),
+):
+    """Manually trigger the daily_timeliness_check job."""
+    from app.scheduler import trigger_daily_timeliness
+    result = trigger_daily_timeliness()
+    return {"status": "ok", "result": result}
+
+
+@admin_override_router.post("/scheduler/dcrm-processing")
+def admin_trigger_dcrm(
+    _user: dict = Depends(require_data_control),
+):
+    """Manually trigger the dcrm_processing job."""
+    from app.scheduler import trigger_dcrm_processing
+    result = trigger_dcrm_processing()
+    return {"status": "ok", "result": result}
+
+
+# ── Phase 7: Cache management ─────────────────────────────────────────────────
+
+@admin_override_router.post("/cache/refresh")
+def cache_refresh(
+    keys: Optional[List[str]] = Body(default=None, description="Specific keys to invalidate; omit to clear all"),
+    _user: dict = Depends(require_system_admin),
+):
+    """Invalidate the application TTL cache.
+
+    Pass a list of keys (\"dimensions\", \"regions\", \"statuses\", \"page_access\")
+    to selectively invalidate, or omit the body to flush everything.
+    """
+    from app.utils.cache import (
+        invalidate_all, invalidate_dimensions, invalidate_regions,
+        invalidate_statuses, invalidate_page_access, cache_stats,
+    )
+    _invalidators = {
+        "dimensions":  invalidate_dimensions,
+        "regions":     invalidate_regions,
+        "statuses":    invalidate_statuses,
+        "page_access": invalidate_page_access,
+    }
+    if keys:
+        unknown = [k for k in keys if k not in _invalidators]
+        if unknown:
+            raise HTTPException(400, f"Unknown cache keys: {unknown}. Valid: {list(_invalidators)}")
+        for k in keys:
+            _invalidators[k]()
+        return {"status": "ok", "invalidated": keys, "cache": cache_stats()}
+    else:
+        result = invalidate_all()
+        return {"status": "ok", **result, "cache": cache_stats()}
+
+
+@admin_override_router.get("/cache/stats")
+def cache_stats_endpoint(_user: dict = Depends(require_system_admin)):
+    """Return current cache occupancy and per-key TTL."""
+    from app.utils.cache import cache_stats
+    return cache_stats()
+
+
+# ── Phase 7: Safe SQL query (SELECT only) ────────────────────────────────────
+
+@admin_override_router.post("/sql/query")
+def admin_sql_query(
+    query: str = Body(..., embed=True, description="SELECT statement to execute"),
+    params: Optional[dict] = Body(default=None, embed=True),
+    max_rows: int = Body(default=200, embed=True, ge=1, le=1000),
+    db: Session = Depends(get_db),
+    _user: dict = Depends(require_system_admin),
+):
+    """Execute a read-only SELECT query against the database.
+
+    Restrictions enforced server-side:
+      - Only SELECT statements are allowed (case-insensitive, stripped).
+      - DML keywords (INSERT, UPDATE, DELETE, DROP, TRUNCATE, ALTER,
+        CREATE, MERGE, EXEC, EXECUTE, GRANT, REVOKE) are blocked.
+      - Results are capped at *max_rows* (default 200, max 1000).
+      - The connection is never committed — the query runs in the existing
+        read-only transaction context.
+
+    Returns: { columns: [...], rows: [[...], ...], row_count: N }
+    """
+    import re
+    from sqlalchemy import text
+
+    stripped = query.strip()
+
+    # ── Guard 1: must start with SELECT ──────────────────────
+    if not re.match(r'(?i)^\s*SELECT\b', stripped):
+        raise HTTPException(400, "Only SELECT statements are permitted.")
+
+    # ── Guard 2: block any DML / DDL token ───────────────────
+    _BLOCKED = re.compile(
+        r'\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|MERGE|EXEC(?:UTE)?|GRANT|REVOKE)\b',
+        re.IGNORECASE,
+    )
+    match = _BLOCKED.search(stripped)
+    if match:
+        raise HTTPException(400, f"Disallowed keyword '{match.group()}' found in query.")
+
+    # ── Guard 3: no statement terminators (prevents stacking) ─
+    # Allow a trailing semicolon but not multiple statements
+    clean = stripped.rstrip(';')
+    if ';' in clean:
+        raise HTTPException(400, "Multiple statements are not allowed.")
+
+    try:
+        result = db.execute(text(clean), params or {})
+        cols = list(result.keys())
+        rows = []
+        for i, row in enumerate(result):
+            if i >= max_rows:
+                break
+            rows.append([str(v) if v is not None else None for v in row])
+
+        return {
+            "columns": cols,
+            "rows": rows,
+            "row_count": len(rows),
+            "truncated": len(rows) == max_rows,
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(400, f"Query error: {exc}")
+
+
 # ═══════════════════════════════════════════════════════════
 # EVIDENCE
 # ═══════════════════════════════════════════════════════════
@@ -567,14 +752,18 @@ evidence_router = APIRouter(prefix="/api/evidence", tags=["Evidence Management"]
 def list_evidence(
     year: int = Query(default=None), month: int = Query(default=None),
     region_id: Optional[int] = None, page: int = 1, page_size: int = 50,
+    all_versions: bool = Query(default=False, description="Return all versions; default returns latest 3 per KRI/dimension/period"),
     db: Session = Depends(get_db), _user: dict = Depends(require_evidence),
 ):
     now = datetime.utcnow()
-    items, total = EvidenceRepository(db).get_all(year or now.year, month or now.month, region_id, page, page_size)
+    items, total = EvidenceRepository(db).get_all(
+        year or now.year, month or now.month, region_id, page, page_size, all_versions=all_versions
+    )
     return {"items": [
         {"evidence_id": e.evidence_id, "kri_id": e.kri_id,
          "file_name": e.file_name, "file_type": e.file_type,
          "version_number": e.version_number, "is_locked": e.is_locked,
+         "evidence_status": e.evidence_status,
          "uploaded_dt": e.uploaded_dt, "kri_name": e.kri.kri_name if e.kri else None}
         for e in items
     ], "total": total}
@@ -628,7 +817,49 @@ def upload_evidence(
     svc = EvidenceService(db)
     ev = svc.upload(kri_id, dimension_id, year, month, file.filename, file_ext,
                     file_size, storage_backend, s3_key, user["user_id"], region_id)
-    return {"evidence_id": ev.evidence_id, "file_name": ev.file_name, "version": ev.version_number, "region_id": region_id}
+    return {
+        "evidence_id": ev.evidence_id,
+        "file_name": ev.file_name,
+        "version": ev.version_number,
+        "evidence_status": ev.evidence_status,
+        "region_id": region_id,
+        "message": "Upload successful. Call POST /submit to activate this evidence.",
+    }
+
+@evidence_router.post("/{evidence_id}/submit")
+def submit_evidence(
+    evidence_id: int,
+    metric_value: Optional[float] = Body(default=None),
+    short_comment: Optional[str] = Body(default=None),
+    long_comment: Optional[str] = Body(default=None),
+    rag_status: Optional[str] = Body(default=None),
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_evidence),
+):
+    """Promote evidence from DRAFT to ACTIVE. Fails if freeze date has passed."""
+    ev = EvidenceService(db).submit(
+        evidence_id=evidence_id,
+        submitted_by=user["user_id"],
+        metric_value=metric_value,
+        short_comment=short_comment,
+        long_comment=long_comment,
+        rag_status=rag_status,
+    )
+    return {
+        "evidence_id": ev.evidence_id,
+        "evidence_status": ev.evidence_status,
+        "version_number": ev.version_number,
+        "s3_key": ev.s3_key,
+    }
+
+@evidence_router.get("/{evidence_id}/download")
+def download_evidence(
+    evidence_id: int,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_any_authenticated),
+):
+    """Return a pre-signed S3 URL (or local path) for downloading evidence."""
+    return EvidenceService(db).generate_download_url(evidence_id, user.get("roles", []))
 
 @evidence_router.post("/{evidence_id}/lock")
 def lock_evidence(evidence_id: int, db: Session = Depends(get_db), user: dict = Depends(require_system_admin)):

@@ -397,7 +397,7 @@ class EvidenceRepository:
         ).order_by(desc(EvidenceMetadata.uploaded_dt)).all()
 
     def get_all(self, year: int = None, month: int = None, region_id: int = None,
-                page: int = 1, page_size: int = 50):
+                page: int = 1, page_size: int = 50, all_versions: bool = False):
         q = self.db.query(EvidenceMetadata).join(KriMaster)
         if year:
             q = q.filter(EvidenceMetadata.period_year == year)
@@ -405,8 +405,27 @@ class EvidenceRepository:
             q = q.filter(EvidenceMetadata.period_month == month)
         if region_id:
             q = q.filter(KriMaster.region_id == region_id)
+        # Exclude deleted records in both modes
+        q = q.filter(EvidenceMetadata.evidence_status != "DELETED")
         q = q.order_by(desc(EvidenceMetadata.uploaded_dt))
-        return paginate(q, page, page_size)
+
+        if all_versions:
+            return paginate(q, page, page_size)
+
+        # Default: latest 3 versions per (kri_id, dimension_id, period_year, period_month)
+        all_rows = q.all()
+        seen: dict = {}
+        filtered = []
+        for row in all_rows:
+            key = (row.kri_id, row.dimension_id, row.period_year, row.period_month)
+            count = seen.get(key, 0)
+            if count < 3:
+                filtered.append(row)
+                seen[key] = count + 1
+
+        total = len(filtered)
+        start = (page - 1) * page_size
+        return filtered[start: start + page_size], total
 
     def create(self, data: dict) -> EvidenceMetadata:
         obj = EvidenceMetadata(**data)
@@ -457,12 +476,14 @@ class MakerCheckerRepository:
         ).first()
 
     def get_pending_for_approver(self, user_id: int, level: str = "L1",
-                                  page: int = 1, page_size: int = 50):
+                                  page: int = 1, page_size: int = 50,
+                                  year: int = None, month: int = None, region_id: int = None):
         """Return pending items for this approver.
         Pool-based: shows submissions assigned to this user OR unassigned (NULL approver_id).
         """
         q = self.db.query(MakerCheckerSubmission).options(
-            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri),
+            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri).joinedload(KriMaster.region),
+            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.dimension),
             joinedload(MakerCheckerSubmission.submitter),
         )
         if level == "L1":
@@ -489,18 +510,38 @@ class MakerCheckerRepository:
                 ),
                 MakerCheckerSubmission.final_status == "L3_PENDING"
             )
+        if year is not None or month is not None or region_id is not None:
+            q = q.join(MonthlyControlStatus, MakerCheckerSubmission.status_id == MonthlyControlStatus.status_id)
+            if year is not None:
+                q = q.filter(MonthlyControlStatus.period_year == year)
+            if month is not None:
+                q = q.filter(MonthlyControlStatus.period_month == month)
+            if region_id is not None:
+                q = q.join(KriMaster, MonthlyControlStatus.kri_id == KriMaster.kri_id)
+                q = q.filter(KriMaster.region_id == region_id)
         return paginate(q, page, page_size)
 
-    def get_all_pending(self, level: str = None, page: int = 1, page_size: int = 50):
+    def get_all_pending(self, level: str = None, page: int = 1, page_size: int = 50,
+                        year: int = None, month: int = None, region_id: int = None):
         """L3 Admin view: see ALL pending items across all levels."""
         q = self.db.query(MakerCheckerSubmission).options(
-            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri),
+            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri).joinedload(KriMaster.region),
+            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.dimension),
             joinedload(MakerCheckerSubmission.submitter),
         ).filter(
             MakerCheckerSubmission.final_status.in_(["L1_PENDING", "L2_PENDING", "L3_PENDING", "PENDING"])
         )
         if level:
             q = q.filter(MakerCheckerSubmission.final_status == f"{level}_PENDING")
+        if year is not None or month is not None or region_id is not None:
+            q = q.join(MonthlyControlStatus, MakerCheckerSubmission.status_id == MonthlyControlStatus.status_id)
+            if year is not None:
+                q = q.filter(MonthlyControlStatus.period_year == year)
+            if month is not None:
+                q = q.filter(MonthlyControlStatus.period_month == month)
+            if region_id is not None:
+                q = q.join(KriMaster, MonthlyControlStatus.kri_id == KriMaster.kri_id)
+                q = q.filter(KriMaster.region_id == region_id)
         q = q.order_by(desc(MakerCheckerSubmission.submitted_dt))
         return paginate(q, page, page_size)
 
@@ -515,47 +556,55 @@ class MakerCheckerRepository:
         ).group_by(MakerCheckerSubmission.final_status).all()
         return {status: count for status, count in counts}
 
-    def get_history(self, user_id: int, year: int = None, month: int = None,
-                    page: int = 1, page_size: int = 50):
-        """Return completed/approved/rejected submissions where user was involved."""
+    def get_history_for_approver(
+        self,
+        user_id: int,
+        level: str = "L1",
+        is_admin: bool = False,
+        year: int = None,
+        month: int = None,
+        page: int = 1,
+        page_size: int = 25,
+    ):
+        """Return completed (terminal) submissions acted on by this approver.
+        Admins (L3_ADMIN, SYSTEM_ADMIN) see all terminal submissions.
+        """
+        terminal_statuses = ["APPROVED", "REJECTED", "REWORK"]
         q = self.db.query(MakerCheckerSubmission).options(
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri),
             joinedload(MakerCheckerSubmission.submitter),
         ).filter(
-            MakerCheckerSubmission.final_status.in_(["APPROVED", "REJECTED", "REWORK"]),
-            or_(
-                MakerCheckerSubmission.submitted_by == user_id,
-                MakerCheckerSubmission.l1_approver_id == user_id,
-                MakerCheckerSubmission.l2_approver_id == user_id,
-                MakerCheckerSubmission.l3_approver_id == user_id,
-            )
+            MakerCheckerSubmission.final_status.in_(terminal_statuses)
         )
-        if year and month:
-            q = q.filter(
-                MakerCheckerSubmission.control_status.has(
-                    and_(MonthlyControlStatus.period_year == year,
-                         MonthlyControlStatus.period_month == month)
-                )
-            )
-        q = q.order_by(desc(MakerCheckerSubmission.submitted_dt))
-        return paginate(q, page, page_size)
 
-    def get_history_admin(self, year: int = None, month: int = None,
-                          page: int = 1, page_size: int = 50):
-        """Admin view: all completed submissions."""
-        q = self.db.query(MakerCheckerSubmission).options(
-            joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri),
-            joinedload(MakerCheckerSubmission.submitter),
-        ).filter(
-            MakerCheckerSubmission.final_status.in_(["APPROVED", "REJECTED", "REWORK"])
-        )
-        if year and month:
-            q = q.filter(
-                MakerCheckerSubmission.control_status.has(
-                    and_(MonthlyControlStatus.period_year == year,
-                         MonthlyControlStatus.period_month == month)
+        if not is_admin:
+            if level == "L1":
+                q = q.filter(
+                    MakerCheckerSubmission.l1_approver_id == user_id,
+                    MakerCheckerSubmission.l1_action.isnot(None),
                 )
+            elif level == "L2":
+                q = q.filter(
+                    MakerCheckerSubmission.l2_approver_id == user_id,
+                    MakerCheckerSubmission.l2_action.isnot(None),
+                )
+            elif level == "L3":
+                q = q.filter(
+                    MakerCheckerSubmission.l3_approver_id == user_id,
+                    MakerCheckerSubmission.l3_action.isnot(None),
+                )
+
+        # Period filter: join to control_status for year/month
+        if year is not None or month is not None:
+            q = q.join(
+                MonthlyControlStatus,
+                MakerCheckerSubmission.status_id == MonthlyControlStatus.status_id,
             )
+            if year is not None:
+                q = q.filter(MonthlyControlStatus.period_year == year)
+            if month is not None:
+                q = q.filter(MonthlyControlStatus.period_month == month)
+
         q = q.order_by(desc(MakerCheckerSubmission.submitted_dt))
         return paginate(q, page, page_size)
 

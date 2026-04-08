@@ -6,9 +6,9 @@ import {
   Select, MenuItem, FormControl, InputLabel, CircularProgress, Alert,
   IconButton, Switch, FormControlLabel, Tooltip,
 } from '@mui/material';
-import { PersonAdd, Edit, Security, Tune, Delete, Rule } from '@mui/icons-material';
+import { PersonAdd, Edit, Security, Tune, Delete, Rule, Storage, PlayArrow, CachedOutlined } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { userApi, escalationApi, lookupApi, kriApi, assignmentRuleApi } from '../../api/client';
+import { userApi, escalationApi, lookupApi, kriApi, assignmentRuleApi, adminApi } from '../../api/client';
 import { roleLabel } from '../../utils/helpers';
 
 const ROLE_CODES = Object.keys(roleLabel);
@@ -63,6 +63,14 @@ export default function AdminPage() {
   const [ruleForm, setRuleForm] = useState(emptyRuleForm);
   const [ruleDeleteDialog, setRuleDeleteDialog] = useState<{ open: boolean; rule: any | null }>({ open: false, rule: null });
 
+  // ─── System Tools state (Phase 7) ───────────────────────
+  const [sqlQuery, setSqlQuery] = useState('SELECT * FROM BIC_REGION');
+  const [sqlMaxRows, setSqlMaxRows] = useState(100);
+  const [sqlResult, setSqlResult] = useState<{ columns: string[]; rows: any[][]; row_count: number; truncated: boolean } | null>(null);
+  const [sqlError, setSqlError] = useState<string | null>(null);
+  const [sqlRunning, setSqlRunning] = useState(false);
+  const [cacheAlert, setCacheAlert] = useState<string | null>(null);
+
   // ─── Queries ────────────────────────────────────────────
   const { data: users, isLoading: loadingUsers } = useQuery({
     queryKey: ['users'],
@@ -96,6 +104,13 @@ export default function AdminPage() {
     queryKey: ['assignment-rules'],
     queryFn: () => assignmentRuleApi.list().then((r) => r.data),
     enabled: tab === 2,
+  });
+
+  const { data: cacheStats, refetch: refetchCache } = useQuery({
+    queryKey: ['cache-stats'],
+    queryFn: () => adminApi.cacheStats().then((r) => r.data),
+    enabled: tab === 3,
+    refetchInterval: tab === 3 ? 15_000 : false,
   });
 
   // ─── Mutations ──────────────────────────────────────────
@@ -310,6 +325,7 @@ export default function AdminPage() {
             <Tab icon={<PersonAdd sx={{ fontSize: 18 }} />} iconPosition="start" label="User Management" />
             <Tab icon={<Tune sx={{ fontSize: 18 }} />} iconPosition="start" label="Escalation Config" />
             <Tab icon={<Rule sx={{ fontSize: 18 }} />} iconPosition="start" label="Assignment Rules" />
+            <Tab icon={<Storage sx={{ fontSize: 18 }} />} iconPosition="start" label="System Tools" />
           </Tabs>
 
           {/* ─── User Management ─────────────────────────── */}
@@ -469,6 +485,168 @@ export default function AdminPage() {
               )}
             </Box>
           )}
+          {/* ─── System Tools (Phase 7) ─────────────────── */}
+          {tab === 3 && (
+            <Box sx={{ p: 2 }}>
+              {/* Cache Management */}
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <CachedOutlined fontSize="small" /> Cache Management
+              </Typography>
+
+              {cacheAlert && (
+                <Alert severity="success" sx={{ mb: 2 }} onClose={() => setCacheAlert(null)}>{cacheAlert}</Alert>
+              )}
+
+              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
+                {['dimensions', 'regions', 'statuses', 'page_access'].map((key) => (
+                  <Button key={key} size="small" variant="outlined" startIcon={<CachedOutlined />}
+                    onClick={() =>
+                      adminApi.cacheRefresh([key]).then(() => {
+                        refetchCache();
+                        setCacheAlert(`Cache key "${key}" invalidated.`);
+                      })
+                    }
+                  >
+                    Flush {key}
+                  </Button>
+                ))}
+                <Button size="small" variant="contained" color="warning" startIcon={<CachedOutlined />}
+                  onClick={() =>
+                    adminApi.cacheRefresh().then(() => {
+                      refetchCache();
+                      setCacheAlert('All cache keys cleared.');
+                    })
+                  }
+                >
+                  Flush All
+                </Button>
+              </Box>
+
+              {cacheStats && (
+                <Box sx={{ mb: 3 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700 }}>
+                    Live cache ({cacheStats.total_keys} keys)
+                  </Typography>
+                  {cacheStats.keys?.length > 0 ? (
+                    <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, maxWidth: 480 }}>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow sx={{ bgcolor: '#f5f7fa' }}>
+                            <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Key</TableCell>
+                            <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>TTL remaining (s)</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {cacheStats.keys.map((k: any) => (
+                            <TableRow key={k.key}>
+                              <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{k.key}</TableCell>
+                              <TableCell sx={{ fontSize: '0.78rem' }}>{k.ttl_remaining}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  ) : (
+                    <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 0.5 }}>
+                      Cache is empty.
+                    </Typography>
+                  )}
+                </Box>
+              )}
+
+              {/* Scheduler Triggers */}
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <PlayArrow fontSize="small" /> Scheduler Triggers
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
+                {[
+                  { label: 'Monthly Init', fn: () => adminApi.triggerMonthlyInit() },
+                  { label: 'Timeliness Check', fn: () => adminApi.triggerTimeliness() },
+                  { label: 'DCRM Processing', fn: () => adminApi.triggerDcrm() },
+                ].map(({ label, fn }) => (
+                  <Button key={label} size="small" variant="outlined" color="secondary"
+                    startIcon={<PlayArrow />}
+                    onClick={() => fn().then(() => setCacheAlert(`Job "${label}" triggered.`))}
+                  >
+                    {label}
+                  </Button>
+                ))}
+              </Box>
+
+              {/* Safe SQL Query */}
+              <Typography variant="subtitle1" sx={{ fontWeight: 700, mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Storage fontSize="small" /> SQL Query (SELECT only)
+              </Typography>
+              <Box sx={{ display: 'flex', gap: 1.5, mb: 1.5, alignItems: 'flex-start' }}>
+                <TextField
+                  multiline minRows={3} fullWidth size="small"
+                  label="SELECT statement"
+                  value={sqlQuery}
+                  onChange={(e) => setSqlQuery(e.target.value)}
+                  sx={{ fontFamily: 'monospace' }}
+                  inputProps={{ style: { fontFamily: 'monospace', fontSize: '0.82rem' } }}
+                />
+                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, flexShrink: 0 }}>
+                  <TextField
+                    size="small" type="number" label="Max rows"
+                    value={sqlMaxRows} onChange={(e) => setSqlMaxRows(Number(e.target.value))}
+                    inputProps={{ min: 1, max: 1000, style: { width: 70 } }}
+                  />
+                  <Button
+                    variant="contained" startIcon={<PlayArrow />}
+                    disabled={sqlRunning || !sqlQuery.trim()}
+                    onClick={async () => {
+                      setSqlRunning(true); setSqlError(null); setSqlResult(null);
+                      try {
+                        const res = await adminApi.sqlQuery(sqlQuery, undefined, sqlMaxRows);
+                        setSqlResult(res.data);
+                      } catch (e: any) {
+                        setSqlError(e.response?.data?.detail ?? 'Query failed');
+                      } finally {
+                        setSqlRunning(false);
+                      }
+                    }}
+                  >
+                    {sqlRunning ? 'Running…' : 'Run'}
+                  </Button>
+                </Box>
+              </Box>
+
+              {sqlError && <Alert severity="error" sx={{ mb: 1.5 }}>{sqlError}</Alert>}
+
+              {sqlResult && (
+                <Box>
+                  <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                    {sqlResult.row_count} row{sqlResult.row_count !== 1 ? 's' : ''}
+                    {sqlResult.truncated ? ' (truncated)' : ''}
+                  </Typography>
+                  <TableContainer component={Paper} variant="outlined" sx={{ mt: 0.5, maxHeight: 340 }}>
+                    <Table size="small" stickyHeader>
+                      <TableHead>
+                        <TableRow sx={{ bgcolor: '#f5f7fa' }}>
+                          {sqlResult.columns.map((c) => (
+                            <TableCell key={c} sx={{ fontWeight: 700, fontSize: '0.72rem', fontFamily: 'monospace', py: 0.5 }}>{c}</TableCell>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {sqlResult.rows.map((row, ri) => (
+                          <TableRow key={ri} hover>
+                            {row.map((cell, ci) => (
+                              <TableCell key={ci} sx={{ fontSize: '0.75rem', fontFamily: 'monospace', py: 0.5, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {cell ?? <Typography component="span" sx={{ color: 'text.disabled', fontStyle: 'italic', fontSize: '0.72rem' }}>null</Typography>}
+                              </TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </TableContainer>
+                </Box>
+              )}
+            </Box>
+          )}
+
           {/* ─── Assignment Rules ────────────────────────── */}
           {tab === 2 && (
             <Box sx={{ p: 2 }}>

@@ -94,7 +94,7 @@ export default function VariancePage() {
                             {canReviewVariance && (
                               <>
                                 <Button
-                                  size="small" variant="contained" color="success"
+                                  size="small" variant="outlined" color="success"
                                   onClick={() => setReviewDialog({ open: true, id: v.variance_id, action: 'APPROVED' })}
                                   sx={{ fontSize: '0.72rem' }}
                                 >

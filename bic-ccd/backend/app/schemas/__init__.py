@@ -1,75 +1,38 @@
-"""Pydantic V2 schemas for BIC-CCD API."""
+"""Pydantic V2 schemas for BIC-CCD API.
+
+All enum classes are imported from app.enums — that module is the SINGLE
+SOURCE OF TRUTH for valid categorical values across Pydantic, ORM, and
+Oracle CHECK constraint DDL.  Do NOT redefine enums here.
+"""
 from datetime import datetime, date
 from typing import Optional, List, Any
 from pydantic import BaseModel, Field, ConfigDict
-from enum import Enum
+
+# Re-export all enums from central module so existing imports like
+#   from app.schemas import ControlStatus
+# continue to work without change.
+from app.enums import (
+    ControlStatus,
+    RoleCode,
+    RAGStatus,
+    ApprovalAction,
+    SubmissionFinalStatus,
+    EvidenceFileStatus,
+    EscalationType,
+    VarianceReviewStatus,
+    NotificationType,
+    ApprovalLevel,
+    VarianceStatus,
+    RiskLevel,
+    EvidenceAction,
+    DataSourceType,
+    CommentType,
+)
 
 
-# ─── Enums ──────────────────────────────────────────────────
-class RoleCode(str, Enum):
-    MANAGEMENT = "MANAGEMENT"
-    L1_APPROVER = "L1_APPROVER"
-    L2_APPROVER = "L2_APPROVER"
-    L3_ADMIN = "L3_ADMIN"
-    DATA_PROVIDER = "DATA_PROVIDER"
-    METRIC_OWNER = "METRIC_OWNER"
-    SYSTEM_ADMIN = "SYSTEM_ADMIN"
 
-
-class RiskLevel(str, Enum):
-    LOW = "LOW"
-    MEDIUM = "MEDIUM"
-    HIGH = "HIGH"
-    CRITICAL = "CRITICAL"
-
-
-class ControlStatus(str, Enum):
-    NOT_STARTED = "NOT_STARTED"
-    IN_PROGRESS = "IN_PROGRESS"
-    PENDING_APPROVAL = "PENDING_APPROVAL"
-    APPROVED = "APPROVED"
-    REWORK = "REWORK"
-    SLA_BREACHED = "SLA_BREACHED"
-    COMPLETED = "COMPLETED"
-
-
-class RAGStatus(str, Enum):
-    GREEN = "GREEN"
-    AMBER = "AMBER"
-    RED = "RED"
-
-
-class ApprovalAction(str, Enum):
-    SUBMITTED = "SUBMITTED"
-    L1_APPROVED = "L1_APPROVED"
-    L1_REJECTED = "L1_REJECTED"
-    L1_REWORK = "L1_REWORK"
-    L2_APPROVED = "L2_APPROVED"
-    L2_REJECTED = "L2_REJECTED"
-    L2_REWORK = "L2_REWORK"
-    L3_APPROVED = "L3_APPROVED"
-    L3_REJECTED = "L3_REJECTED"
-    L3_REWORK = "L3_REWORK"
-    ESCALATED = "ESCALATED"
-    RECALLED = "RECALLED"
-    OVERRIDDEN = "OVERRIDDEN"
-
-
-class SubmissionStatus(str, Enum):
-    PENDING = "PENDING"
-    L1_PENDING = "L1_PENDING"
-    L2_PENDING = "L2_PENDING"
-    L3_PENDING = "L3_PENDING"
-    APPROVED = "APPROVED"
-    REJECTED = "REJECTED"
-    REWORK = "REWORK"
-
-
-class VarianceReviewStatus(str, Enum):
-    PENDING = "PENDING"
-    APPROVED = "APPROVED"
-    REJECTED = "REJECTED"
-    REWORK = "REWORK"
+# ─── Backward-compat alias — schemas used SubmissionStatus, enums uses SubmissionFinalStatus
+SubmissionStatus = SubmissionFinalStatus
 
 
 # ─── Auth ───────────────────────────────────────────────────
@@ -293,7 +256,7 @@ class MakerCheckerSubmitRequest(BaseModel):
     status_id: int
     evidence_id: Optional[int] = None
     submission_notes: Optional[str] = None
-    l1_approver_id: Optional[int] = None  # auto-resolved from assignment rules when omitted
+    l1_approver_id: int
 
 class MakerCheckerResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

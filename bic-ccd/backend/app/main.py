@@ -10,6 +10,7 @@ import os
 from app.config import get_settings
 from app.database import engine, Base, SessionLocal
 from app.middleware import RequestIdMiddleware, AuditLogMiddleware
+from app.scheduler import create_scheduler
 from app.routers import (
     auth_router, lookup_router, dashboard_router, kri_router,
     config_router, control_router, mc_router, evidence_router,
@@ -17,11 +18,12 @@ from app.routers import (
     notification_router, comment_router, datasource_router, health_router,
     admin_override_router, assignment_rule_router,
 )
+from app.routers.scorecard import scorecard_router
 from app.models import (
     RegionMaster, KriCategoryMaster, ControlDimensionMaster,
     AppUser, UserRoleMapping, KriMaster, KriConfiguration,
     MonthlyControlStatus, MetricValues, KriAssignment,
-    MakerCheckerSubmission, ApprovalAuditTrail,
+    MakerCheckerSubmission, ApprovalAuditTrail, KriStatusLookup,
 )
 
 settings = get_settings()
@@ -35,39 +37,90 @@ logger = logging.getLogger("bic_ccd")
 
 
 def seed_database():
-    """Seed dev database with demo data."""
+    """Seed dev database with demo data (idempotent — safe to call on every restart).
+
+    Oracle-safe: each phase commits independently so FK constraints are satisfied
+    even when previous runs left partial data.  Every section checks its own table
+    count to decide whether to skip rather than relying on a single terminal guard.
+    """
     db = SessionLocal()
     try:
-        if db.query(RegionMaster).count() > 0:
+        # Phase guard: if MonthlyControlStatus already has rows the full seed
+        # ran to completion — skip everything.
+        if db.query(MonthlyControlStatus).count() > 0:
             logger.info("Database already seeded, skipping.")
             return
 
+        logger.info("Starting Oracle-safe incremental seed...")
+
         logger.info("Seeding database with demo data...")
 
-        # Regions
-        regions = []
-        for code, name in [("UK", "United Kingdom"), ("SGP", "Singapore"), ("CEP", "Central Europe")]:
-            r = RegionMaster(region_code=code, region_name=name, created_by="SYSTEM", updated_by="SYSTEM")
-            db.add(r)
-            regions.append(r)
+        # ── BIC_KRI_STATUS lookup ──────────────────────────
+        # get_or_create pattern so a partially-seeded DB won't violate UNIQUE
+        existing_statuses = {r.status_name for r in db.query(KriStatusLookup).all()}
+        for sname in [
+            "NOT_STARTED", "IN_PROGRESS", "PENDING_APPROVAL", "APPROVED",
+            "REWORK", "SLA_BREACHED", "COMPLETED", "SLA_MET",
+            "RECEIVED_POST_BREACH", "REJECTED", "RECEIVED", "NOT_RECEIVED",
+            "INSUFFICIENT_MAPPING", "DRAFT", "ACTIVE", "DELETED",
+        ]:
+            if sname not in existing_statuses:
+                db.add(KriStatusLookup(status_name=sname))
         db.flush()
 
-        # Categories
+        # ── Regions ── commit immediately so FKs resolve in subsequent phases ──
+        regions = []
+        # Match by region_code OR region_name so existing Oracle BIC_REGION rows
+        # (which may have NULL region_code from legacy setup) are found correctly.
+        all_existing_regions = db.query(RegionMaster).all()
+        existing_by_code = {r.region_code: r for r in all_existing_regions if r.region_code}
+        existing_by_name = {r.region_name: r for r in all_existing_regions}
+        regions_to_add = []
+        for code, name in [("UK", "United Kingdom"), ("SGP", "Singapore"), ("CEP", "Central Europe")]:
+            if code in existing_by_code:
+                regions.append(existing_by_code[code])
+            elif name in existing_by_name:
+                # Found by name — back-fill the region_code if missing
+                r = existing_by_name[name]
+                if not r.region_code:
+                    r.region_code = code
+                regions.append(r)
+            else:
+                r = RegionMaster(region_code=code, region_name=name, created_by="SYSTEM", updated_by="SYSTEM")
+                db.add(r)
+                regions_to_add.append(r)
+                regions.append(r)
+        if regions_to_add:
+            # Commit new regions immediately so downstream FKs are satisfied
+            db.commit()
+            logger.info("Seeded %d new regions.", len(regions_to_add))
+            # Refresh so we have the Oracle-assigned PKs
+            for r in regions_to_add:
+                db.refresh(r)
+        else:
+            db.flush()
+
+        # ── Categories ─────────────────────────────────────
         categories = []
+        existing_cats = {c.category_code: c for c in db.query(KriCategoryMaster).all()}
         for code, name in [
             ("MARKET_RISK", "Market Risk"), ("CREDIT_RISK", "Credit Risk"),
             ("OPS_RISK", "Operational Risk"), ("LIQ_RISK", "Liquidity Risk"),
             ("REGULATORY", "Regulatory Compliance"),
         ]:
-            c = KriCategoryMaster(category_code=code, category_name=name, created_by="SYSTEM", updated_by="SYSTEM")
-            db.add(c)
-            categories.append(c)
+            if code in existing_cats:
+                categories.append(existing_cats[code])
+            else:
+                c = KriCategoryMaster(category_code=code, category_name=name, created_by="SYSTEM", updated_by="SYSTEM")
+                db.add(c)
+                categories.append(c)
         db.flush()
 
-        # Control Dimensions (7 tabs)
+        # ── Control Dimensions (7 tabs) ────────────────────
         dimensions = []
+        existing_dims = {d.dimension_code: d for d in db.query(ControlDimensionMaster).all()}
         for i, (code, name) in enumerate([
-            ("DATA_PROVIDER_SLA", "Timeliness"),
+            ("DATA_PROVIDER_SLA", "Data Provider SLA"),
             ("COMPLETENESS_ACCURACY", "Completeness & Accuracy"),
             ("MATERIAL_PREPARER", "Material Preparer"),
             ("VARIANCE_ANALYSIS", "Variance Analysis"),
@@ -75,13 +128,16 @@ def seed_database():
             ("ADJ_TRACKING", "Adjustments Tracking"),
             ("CHANGE_GOVERNANCE", "Change Governance"),
         ], 1):
-            d = ControlDimensionMaster(dimension_code=code, dimension_name=name,
-                                        display_order=i, created_by="SYSTEM", updated_by="SYSTEM")
-            db.add(d)
-            dimensions.append(d)
+            if code in existing_dims:
+                dimensions.append(existing_dims[code])
+            else:
+                d = ControlDimensionMaster(dimension_code=code, dimension_name=name,
+                                            display_order=i, created_by="SYSTEM", updated_by="SYSTEM")
+                db.add(d)
+                dimensions.append(d)
         db.flush()
 
-        # Users
+        # ── Users ──────────────────────────────────────────
         users_data = [
             ("RANREDDY", "Rahul Anreddy", "rahul.anreddy@company.com", "Risk Mgmt", "MANAGEMENT"),
             ("JSMITH01", "John Smith", "john.smith@company.com", "Controls", "L1_APPROVER"),
@@ -91,54 +147,73 @@ def seed_database():
             ("MKUMAR", "Manoj Kumar", "manoj.kumar@company.com", "Metrics", "METRIC_OWNER"),
             ("SYSADMIN", "System Admin", "admin@company.com", "IT", "SYSTEM_ADMIN"),
         ]
+        existing_users = {u.soe_id: u for u in db.query(AppUser).all()}
         users = []
         for soe, name, email, dept, role in users_data:
-            u = AppUser(soe_id=soe, full_name=name, email=email, department=dept,
-                        created_by="SYSTEM", updated_by="SYSTEM")
-            db.add(u)
-            users.append((u, role))
+            if soe in existing_users:
+                users.append((existing_users[soe], role))
+            else:
+                u = AppUser(soe_id=soe, full_name=name, email=email, department=dept,
+                            created_by="SYSTEM", updated_by="SYSTEM")
+                db.add(u)
+                users.append((u, role))
         db.flush()
 
-        # Role mappings
+        # ── Role mappings ──────────────────────────────────
+        existing_role_keys = {
+            (r.user_id, r.role_code, r.region_id)
+            for r in db.query(UserRoleMapping).all()
+        }
         for user, role in users:
             for region in regions:
-                rm = UserRoleMapping(
-                    user_id=user.user_id, role_code=role, region_id=region.region_id,
-                    effective_from=date(2024, 1, 1), created_by="SYSTEM", updated_by="SYSTEM"
-                )
-                db.add(rm)
+                if (user.user_id, role, region.region_id) not in existing_role_keys:
+                    rm = UserRoleMapping(
+                        user_id=user.user_id, role_code=role, region_id=region.region_id,
+                        effective_from=date(2024, 1, 1), created_by="SYSTEM", updated_by="SYSTEM"
+                    )
+                    db.add(rm)
         db.flush()
 
-        # KRIs — 8 per region = 24 total
+        # ── KRIs — 8 per region = 24 total ─────────────────
         kri_names = [
             ("VaR Limit", "MARKET_RISK"), ("Credit Exposure", "CREDIT_RISK"),
             ("OpRisk Events", "OPS_RISK"), ("Liquidity Buffer", "LIQ_RISK"),
             ("Reg Capital Ratio", "REGULATORY"), ("Stress Test P&L", "MARKET_RISK"),
             ("Default Rate", "CREDIT_RISK"), ("IT Incident Count", "OPS_RISK"),
         ]
-
-        all_kris = []
+        existing_kri_codes = {k.kri_code for k in db.query(KriMaster).all()}
+        all_kris = list(db.query(KriMaster).all())  # pick up any already-existing ones
         kri_num = 0
         for region in regions:
             for kri_name, cat_code in kri_names:
                 kri_num += 1
+                kri_code = f"KRI-{region.region_code}-{kri_num:03d}"
+                if kri_code in existing_kri_codes:
+                    continue
                 cat = next(c for c in categories if c.category_code == cat_code)
                 risk = ["LOW", "MEDIUM", "HIGH", "CRITICAL"][kri_num % 4]
                 k = KriMaster(
-                    kri_code=f"KRI-{region.region_code}-{kri_num:03d}",
+                    kri_code=kri_code,
                     kri_name=f"{kri_name} ({region.region_code})",
+                    kri_title=kri_name,
                     description=f"Key Risk Indicator for {kri_name} in {region.region_name}",
                     category_id=cat.category_id, region_id=region.region_id,
                     risk_level=risk, framework="Active Framework",
+                    is_dcrm=False,
                     onboarded_dt=datetime(2024, 6, 1), created_by="SYSTEM", updated_by="SYSTEM"
                 )
                 db.add(k)
                 all_kris.append(k)
         db.flush()
 
-        # KRI Configurations — each KRI × each dimension
+        # ── KRI Configurations — each KRI × each dimension ─
+        existing_cfg_keys = {
+            (c.kri_id, c.dimension_id) for c in db.query(KriConfiguration).all()
+        }
         for kri in all_kris:
             for dim in dimensions:
+                if (kri.kri_id, dim.dimension_id) in existing_cfg_keys:
+                    continue
                 cfg = KriConfiguration(
                     kri_id=kri.kri_id, dimension_id=dim.dimension_id,
                     sla_days=3, variance_threshold=10.0,
@@ -325,34 +400,25 @@ def seed_database():
         db.close()
 
 
-def fix_dimension_names():
-    """Rename any legacy dimension labels to current display names."""
-    db = SessionLocal()
-    try:
-        from app.models import ControlDimensionMaster
-        renames = {"Data Provider SLA": "Timeliness"}
-        for old, new in renames.items():
-            dim = db.query(ControlDimensionMaster).filter(
-                ControlDimensionMaster.dimension_name == old
-            ).first()
-            if dim:
-                dim.dimension_name = new
-                db.commit()
-                logger.info(f"Renamed dimension '{old}' → '{new}'")
-    except Exception as e:
-        db.rollback()
-        logger.error(f"fix_dimension_names failed: {e}")
-    finally:
-        db.close()
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info(f"Starting BIC-CCD v{settings.APP_VERSION} ({settings.ENV})")
     Base.metadata.create_all(bind=engine)
     seed_database()
-    fix_dimension_names()
+
+    scheduler = None
+    if settings.SCHEDULER_ENABLED:
+        scheduler = create_scheduler()
+        scheduler.start()
+        logger.info("APScheduler started (%d jobs registered)", len(scheduler.get_jobs()))
+    else:
+        logger.info("Scheduler disabled via SCHEDULER_ENABLED=False")
+
     yield
+
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+        logger.info("APScheduler shut down")
     logger.info("Shutting down BIC-CCD")
 
 
@@ -395,6 +461,7 @@ app.include_router(comment_router)
 app.include_router(datasource_router)
 app.include_router(admin_override_router)
 app.include_router(assignment_rule_router)
+app.include_router(scorecard_router)
 
 # Serve frontend static build in production
 if os.path.exists("static"):

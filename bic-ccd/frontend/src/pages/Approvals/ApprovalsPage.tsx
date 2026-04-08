@@ -4,17 +4,17 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   CircularProgress, Alert, Select, MenuItem, FormControl, InputLabel,
-  Collapse, IconButton, Tooltip,
+  Collapse, IconButton, Tooltip, Pagination,
 } from '@mui/material';
 import {
   CheckCircle, Cancel, Replay, ArrowForward, KeyboardArrowDown,
-  KeyboardArrowUp, Folder, Comment, History,
+  KeyboardArrowUp, Folder, Comment, History, FilterAlt, FilterAltOff,
 } from '@mui/icons-material';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { makerCheckerApi, userApi, commentApi, controlApi } from '../../api/client';
+import { makerCheckerApi, userApi, commentApi, controlApi, lookupApi } from '../../api/client';
 import { useAppSelector } from '../../store';
-import { hasRole, isL3Admin } from '../../utils/helpers';
+import { hasRole, isL3Admin, getAvailablePeriods } from '../../utils/helpers';
 
 // ─── Status chip helper ───────────────────────────────────────
 const statusChip = (status: string) => {
@@ -34,6 +34,21 @@ const statusChip = (status: string) => {
       size="small"
       sx={{ bgcolor: s.bg, color: s.color, fontWeight: 700, fontSize: '0.72rem' }}
     />
+  );
+};
+
+// ─── Action chip helper ──────────────────────────────────────
+const actionChip = (action: string | null) => {
+  if (!action) return <Typography variant="caption" sx={{ color: 'text.disabled' }}>—</Typography>;
+  const map: Record<string, { bg: string; color: string }> = {
+    APPROVED: { bg: '#e8f5e9', color: '#2e7d32' },
+    REJECTED: { bg: '#ffebee', color: '#c62828' },
+    REWORK:   { bg: '#fff3e0', color: '#e65100' },
+    ESCALATE: { bg: '#f3e5f5', color: '#6a1b9a' },
+  };
+  const s = map[action] || { bg: '#f5f5f5', color: '#616161' };
+  return (
+    <Chip label={action} size="small" sx={{ bgcolor: s.bg, color: s.color, fontWeight: 700, fontSize: '0.72rem' }} />
   );
 };
 
@@ -70,7 +85,6 @@ const InlineAuditTrail = ({ item }: { item: any }) => {
     enabled: true,
   });
 
-  // Approver summary row
   const approverRows = [
     { level: 'L1', name: item.l1_approver_name, id: item.l1_approver_id, action: item.l1_action },
     { level: 'L2', name: item.l2_approver_name, id: item.l2_approver_id, action: item.l2_action },
@@ -79,7 +93,6 @@ const InlineAuditTrail = ({ item }: { item: any }) => {
 
   return (
     <Box sx={{ px: 3, py: 2, bgcolor: '#fafafa', borderTop: '1px solid', borderColor: 'divider' }}>
-      {/* Approver assignment summary */}
       {approverRows.length > 0 && (
         <Box sx={{ display: 'flex', gap: 2, mb: 2, flexWrap: 'wrap' }}>
           {approverRows.map((r) => {
@@ -101,7 +114,6 @@ const InlineAuditTrail = ({ item }: { item: any }) => {
         </Box>
       )}
 
-      {/* Audit trail table */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
         <History sx={{ fontSize: 15, color: 'text.secondary' }} />
         <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
@@ -158,28 +170,83 @@ const InlineAuditTrail = ({ item }: { item: any }) => {
   );
 };
 
+// ─── Month names ─────────────────────────────────────────────
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 export default function ApprovalsPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { user } = useAppSelector((s) => s.auth);
-  const [level, setLevel] = useState<'L1' | 'L2' | 'L3'>('L1');
-  const [expandedRow, setExpandedRow] = useState<number | null>(null);
 
+  // Outer section: "My Approvals" vs "Approvals History"
+  const [section, setSection] = useState<'active' | 'history'>('active');
+
+  // My Approvals — active level tab
+  const [level, setLevel] = useState<'L1' | 'L2' | 'L3'>(() => {
+    const roles = user?.roles || [];
+    if (hasRole(roles, ['L3_ADMIN', 'SYSTEM_ADMIN'])) return 'L3';
+    if (hasRole(roles, ['L2_APPROVER'])) return 'L2';
+    return 'L1';
+  });
+
+  // Active queue filters
+  const [activeYear, setActiveYear] = useState<number | ''>('');
+  const [activeMonth, setActiveMonth] = useState<number | ''>('');
+  const [activeRegionId, setActiveRegionId] = useState<number | ''>('');
+  const [activePage, setActivePage] = useState(1);
+
+  const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [actionDialog, setActionDialog] = useState<{
-    open: boolean; submissionId: number | null; action: string; kri_id?: number | null;
+    open: boolean; submissionId: number | null; action: string;
   }>({ open: false, submissionId: null, action: '' });
   const [comments, setComments] = useState('');
+  const [commentsTouched, setCommentsTouched] = useState(false);
   const [nextApproverId, setNextApproverId] = useState<number | null>(null);
-
   const [commentDialog, setCommentDialog] = useState<{ open: boolean; statusId: number | null; kriId: number | null }>({
     open: false, statusId: null, kriId: null,
   });
   const [commentText, setCommentText] = useState('');
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['pending-approvals', level],
-    queryFn: () => makerCheckerApi.pending({ level }).then((r) => r.data),
+  // History filters
+  const [historyLevel, setHistoryLevel] = useState<'L1' | 'L2' | 'L3'>(() => {
+    const roles = user?.roles || [];
+    if (hasRole(roles, ['L3_ADMIN', 'SYSTEM_ADMIN'])) return 'L3';
+    if (hasRole(roles, ['L2_APPROVER'])) return 'L2';
+    return 'L1';
+  });
+  const [historyYear, setHistoryYear] = useState<number | ''>('');
+  const [historyMonth, setHistoryMonth] = useState<number | ''>('');
+  const [historyPage, setHistoryPage] = useState(1);
+
+  // ─── Queries ─────────────────────────────────────────────
+  const { data: pendingData, isLoading: pendingLoading } = useQuery({
+    queryKey: ['pending-approvals', level, activeYear, activeMonth, activeRegionId, activePage],
+    queryFn: () => makerCheckerApi.pending({
+      level,
+      year: activeYear || undefined,
+      month: activeMonth || undefined,
+      region_id: activeRegionId || undefined,
+      page: activePage,
+      page_size: 25,
+    }).then((r) => r.data),
+    enabled: section === 'active',
+  });
+
+  const { data: historyData, isLoading: historyLoading } = useQuery({
+    queryKey: ['approval-history', historyLevel, historyYear, historyMonth, historyPage],
+    queryFn: () => makerCheckerApi.history({
+      level: historyLevel,
+      year: historyYear || undefined,
+      month: historyMonth || undefined,
+      page: historyPage,
+      page_size: 25,
+    }).then((r) => r.data),
+    enabled: section === 'history',
+  });
+
+  const { data: regionsData = [] } = useQuery({
+    queryKey: ['regions'],
+    queryFn: () => lookupApi.regions().then((r) => r.data),
   });
 
   const { data: l2Users = [] } = useQuery({
@@ -192,6 +259,7 @@ export default function ApprovalsPage() {
     queryFn: () => userApi.byRole('L3_ADMIN').then((r) => r.data),
   });
 
+  // ─── Mutations ───────────────────────────────────────────
   const actionMutation = useMutation({
     mutationFn: (params: { id: number; action: string; comments: string; next_approver_id?: number }) =>
       makerCheckerApi.action(params.id, {
@@ -203,6 +271,7 @@ export default function ApprovalsPage() {
       queryClient.invalidateQueries({ queryKey: ['pending-approvals'] });
       setActionDialog({ open: false, submissionId: null, action: '' });
       setComments('');
+      setCommentsTouched(false);
       setNextApproverId(null);
     },
   });
@@ -216,78 +285,428 @@ export default function ApprovalsPage() {
     },
   });
 
-  const items = data?.items || [];
+  const activeItems = pendingData?.items || [];
+  const activeTotal = pendingData?.total || 0;
+  const historyItems = historyData?.items || [];
+  const historyTotal = historyData?.total || 0;
   const nextApprovers = level === 'L1' ? l2Users : level === 'L2' ? l3Users : [];
 
   const canApprove = hasRole(user?.roles || [], ['L1_APPROVER', 'L2_APPROVER', 'L3_ADMIN', 'SYSTEM_ADMIN']);
   const canEscalate = isL3Admin(user?.roles || []);
+  const isAdmin = hasRole(user?.roles || [], ['L3_ADMIN', 'SYSTEM_ADMIN']);
 
-  const handleAction = (submissionId: number, action: string) => {
-    setActionDialog({ open: true, submissionId, action });
-  };
+  const periods = getAvailablePeriods(24);
+  const availableYears = Array.from(new Set(periods.map((p) => p.year)));
 
-  const confirmAction = () => {
-    if (!actionDialog.submissionId) return;
-    actionMutation.mutate({
-      id: actionDialog.submissionId,
-      action: actionDialog.action,
-      comments,
-      next_approver_id: nextApproverId || undefined,
-    });
+  const hasActiveFilters = activeYear !== '' || activeMonth !== '' || activeRegionId !== '';
+
+  const clearActiveFilters = () => {
+    setActiveYear('');
+    setActiveMonth('');
+    setActiveRegionId('');
+    setActivePage(1);
   };
 
   return (
     <Box>
       <Typography variant="h5" sx={{ mb: 2, fontWeight: 700 }}>Approvals Queue</Typography>
 
-      <Card>
-        <CardContent sx={{ p: 0 }}>
-          <Tabs value={level} onChange={(_, v) => setLevel(v)} sx={{ borderBottom: '1px solid', borderColor: 'divider' }}>
-            {hasRole(user?.roles || [], ['L1_APPROVER', 'L2_APPROVER', 'L3_ADMIN', 'SYSTEM_ADMIN']) && (
-              <Tab label="L1 Approver" value="L1" />
-            )}
-            {hasRole(user?.roles || [], ['L2_APPROVER', 'L3_ADMIN', 'SYSTEM_ADMIN']) && (
-              <Tab label="L2 Approver" value="L2" />
-            )}
-            {hasRole(user?.roles || [], ['L3_ADMIN', 'SYSTEM_ADMIN']) && (
-              <Tab label="L3 / Admin" value="L3" />
-            )}
-          </Tabs>
+      {/* ─── Outer section tabs ─────────────────────────────── */}
+      <Box sx={{ borderBottom: '2px solid', borderColor: 'divider', mb: 0 }}>
+        <Tabs
+          value={section}
+          onChange={(_, v) => setSection(v)}
+          sx={{ '& .MuiTab-root': { fontWeight: 700, fontSize: '0.9rem' } }}
+        >
+          <Tab label="My Approvals" value="active" />
+          <Tab label="Approvals History" value="history" icon={<History sx={{ fontSize: 18 }} />} iconPosition="start" />
+        </Tabs>
+      </Box>
 
-          <Box sx={{ p: 2 }}>
-            {isLoading ? (
-              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
-            ) : items.length === 0 ? (
-              <Alert severity="success" sx={{ mt: 1 }}>No pending {level} approvals. All caught up!</Alert>
-            ) : (
-              <TableContainer>
-                <Table size="small">
-                  <TableHead>
-                    <TableRow>
-                      <TableCell sx={{ width: 32 }} />
-                      <TableCell sx={{ fontWeight: 700 }}>KRI</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>SLA</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Pending With</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Submitted</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Submitted By</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="center">Actions</TableCell>
-                    </TableRow>
-                  </TableHead>
-                  <TableBody>
-                    {items.map((item: any) => (
-                      <React.Fragment key={item.submission_id}>
-                        <TableRow hover sx={{ '& > *': { borderBottom: expandedRow === item.submission_id ? 'unset' : undefined } }}>
+      {/* ═══════════════════════════════════════════════════════
+          MY APPROVALS — active queue with filters
+      ════════════════════════════════════════════════════════ */}
+      {section === 'active' && (
+        <Card sx={{ mt: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
+          <CardContent sx={{ p: 0 }}>
+            {/* Level tabs */}
+            <Tabs
+              value={level}
+              onChange={(_, v) => { setLevel(v); setActivePage(1); }}
+              sx={{ borderBottom: '1px solid', borderColor: 'divider' }}
+            >
+              {hasRole(user?.roles || [], ['L1_APPROVER', 'L2_APPROVER', 'L3_ADMIN', 'SYSTEM_ADMIN']) && (
+                <Tab label="L1 Approver" value="L1" />
+              )}
+              {hasRole(user?.roles || [], ['L2_APPROVER', 'L3_ADMIN', 'SYSTEM_ADMIN']) && (
+                <Tab label="L2 Approver" value="L2" />
+              )}
+              {hasRole(user?.roles || [], ['L3_ADMIN', 'SYSTEM_ADMIN']) && (
+                <Tab label="L3 / Admin" value="L3" />
+              )}
+            </Tabs>
+
+            {/* ─── Active Queue Filter Bar ───────────────────── */}
+            <Box sx={{
+              display: 'flex', gap: 2, p: 2, alignItems: 'center', flexWrap: 'wrap',
+              borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#fafafa',
+            }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <FilterAlt sx={{ fontSize: 16, color: 'text.secondary' }} />
+                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                  Filters
+                </Typography>
+              </Box>
+
+              {/* Reporting Month — Year */}
+              <FormControl size="small" sx={{ minWidth: 110 }}>
+                <InputLabel>Year</InputLabel>
+                <Select
+                  value={activeYear}
+                  label="Year"
+                  onChange={(e) => { setActiveYear(e.target.value as number | ''); setActivePage(1); }}
+                >
+                  <MenuItem value="">All Years</MenuItem>
+                  {availableYears.map((y) => (
+                    <MenuItem key={y} value={y}>{y}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Reporting Month */}
+              <FormControl size="small" sx={{ minWidth: 140 }}>
+                <InputLabel>Reporting Month</InputLabel>
+                <Select
+                  value={activeMonth}
+                  label="Reporting Month"
+                  onChange={(e) => { setActiveMonth(e.target.value as number | ''); setActivePage(1); }}
+                >
+                  <MenuItem value="">All Months</MenuItem>
+                  {MONTHS.map((name, idx) => (
+                    <MenuItem key={idx + 1} value={idx + 1}>{name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {/* Legal Entity */}
+              <FormControl size="small" sx={{ minWidth: 160 }}>
+                <InputLabel>Legal Entity</InputLabel>
+                <Select
+                  value={activeRegionId}
+                  label="Legal Entity"
+                  onChange={(e) => { setActiveRegionId(e.target.value as number | ''); setActivePage(1); }}
+                >
+                  <MenuItem value="">All Entities</MenuItem>
+                  {(regionsData as any[]).map((r: any) => (
+                    <MenuItem key={r.region_id} value={r.region_id}>{r.region_name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {hasActiveFilters && (
+                <Tooltip title="Clear all filters">
+                  <IconButton size="small" onClick={clearActiveFilters}>
+                    <FilterAltOff fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+
+              {activeTotal > 0 && (
+                <Typography variant="caption" sx={{ color: 'text.secondary', ml: 'auto' }}>
+                  {activeTotal} item{activeTotal !== 1 ? 's' : ''}
+                  {hasActiveFilters ? ' (filtered)' : ''}
+                </Typography>
+              )}
+            </Box>
+
+            <Box sx={{ p: 2 }}>
+              {pendingLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+              ) : activeItems.length === 0 ? (
+                <Alert severity="success" sx={{ mt: 1 }}>
+                  {hasActiveFilters
+                    ? 'No pending approvals match the selected filters.'
+                    : `No pending ${level} approvals. All caught up!`}
+                </Alert>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ width: 32 }} />
+                        <TableCell sx={{ fontWeight: 700 }}>KRI</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Control / Dimension</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Legal Entity</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Reporting Month</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Submitted</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Submitted By</TableCell>
+                        <TableCell sx={{ fontWeight: 700, minWidth: 130 }} align="center">Actions</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {activeItems.map((item: any) => (
+                        <React.Fragment key={item.submission_id}>
+                          <TableRow hover sx={{ '& > *': { borderBottom: expandedRow === item.submission_id ? 'unset' : undefined } }}>
+                            <TableCell>
+                              <IconButton
+                                size="small"
+                                onClick={() => setExpandedRow(expandedRow === item.submission_id ? null : item.submission_id)}
+                              >
+                                {expandedRow === item.submission_id ? <KeyboardArrowUp /> : <KeyboardArrowDown />}
+                              </IconButton>
+                            </TableCell>
+
+                            {/* KRI name + code only, no brackets */}
+                            <TableCell>
+                              <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.85rem' }}>
+                                {item.kri_name || `Status #${item.status_id}`}
+                              </Typography>
+                              {item.kri_code && (
+                                <Typography variant="caption" sx={{ color: 'text.secondary', fontFamily: 'monospace' }}>
+                                  {item.kri_code}
+                                </Typography>
+                              )}
+                            </TableCell>
+
+                            {/* Control / Dimension name */}
+                            <TableCell sx={{ fontSize: '0.82rem' }}>
+                              {item.dimension_name || '—'}
+                            </TableCell>
+
+                            {/* Legal Entity (region) */}
+                            <TableCell sx={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                              {item.region_name || '—'}
+                            </TableCell>
+
+                            {/* Reporting Month */}
+                            <TableCell sx={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
+                              {item.period_year && item.period_month
+                                ? `${MONTHS[item.period_month - 1]} ${item.period_year}`
+                                : '—'}
+                            </TableCell>
+
+                            {/* Status */}
+                            <TableCell>{statusChip(item.final_status)}</TableCell>
+
+                            {/* Submitted — date + time */}
+                            <TableCell sx={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                              {new Date(item.submitted_dt).toLocaleString('en-GB', {
+                                day: '2-digit', month: 'short', year: 'numeric',
+                                hour: '2-digit', minute: '2-digit',
+                              })}
+                            </TableCell>
+
+                            <TableCell sx={{ fontSize: '0.82rem' }}>
+                              {item.submitted_by_name || `User #${item.submitted_by}`}
+                            </TableCell>
+
+                            {/* ─── Actions: compact icon buttons ─── */}
+                            <TableCell align="center">
+                              <Box sx={{ display: 'flex', gap: 0.4, justifyContent: 'center', alignItems: 'center', flexWrap: 'nowrap' }}>
+                                {canApprove && (
+                                  <>
+                                    <Tooltip title="Approve">
+                                      <IconButton
+                                        size="small" color="success" aria-label="Approve"
+                                        onClick={() => setActionDialog({ open: true, submissionId: item.submission_id, action: 'APPROVED' })}
+                                        sx={{ border: '1px solid', borderColor: 'success.light', borderRadius: 1.5, p: 0.5 }}
+                                      >
+                                        <CheckCircle fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Send for Rework">
+                                      <IconButton
+                                        size="small" color="warning" aria-label="Rework"
+                                        onClick={() => setActionDialog({ open: true, submissionId: item.submission_id, action: 'REWORK' })}
+                                        sx={{ border: '1px solid', borderColor: 'warning.light', borderRadius: 1.5, p: 0.5 }}
+                                      >
+                                        <Replay fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                    <Tooltip title="Reject">
+                                      <IconButton
+                                        size="small" color="error" aria-label="Reject"
+                                        onClick={() => setActionDialog({ open: true, submissionId: item.submission_id, action: 'REJECTED' })}
+                                        sx={{ border: '1px solid', borderColor: 'error.light', borderRadius: 1.5, p: 0.5 }}
+                                      >
+                                        <Cancel fontSize="small" />
+                                      </IconButton>
+                                    </Tooltip>
+                                  </>
+                                )}
+                                {canEscalate && level !== 'L3' && (
+                                  <Tooltip title="Escalate">
+                                    <IconButton
+                                      size="small" color="info" aria-label="Escalate"
+                                      onClick={() => setActionDialog({ open: true, submissionId: item.submission_id, action: 'ESCALATE' })}
+                                      sx={{ border: '1px solid', borderColor: 'info.light', borderRadius: 1.5, p: 0.5 }}
+                                    >
+                                      <ArrowForward fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                )}
+                                <Tooltip title="View Evidence">
+                                  <IconButton size="small" onClick={() => navigate('/evidence')} aria-label="View Evidence">
+                                    <Folder fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Add Comment">
+                                  <IconButton size="small" aria-label="Add Comment" onClick={() => {
+                                    setCommentDialog({ open: true, statusId: item.status_id, kriId: item.kri_id });
+                                    setCommentText('');
+                                  }}>
+                                    <Comment fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
+                            </TableCell>
+                          </TableRow>
+
+                          {/* Expandable Audit Trail — colSpan updated to 9 */}
+                          <TableRow>
+                            <TableCell colSpan={9} sx={{ p: 0, border: 0 }}>
+                              <Collapse in={expandedRow === item.submission_id} timeout="auto" unmountOnExit>
+                                <InlineAuditTrail item={item} />
+                              </Collapse>
+                            </TableCell>
+                          </TableRow>
+                        </React.Fragment>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
+
+              {/* Active queue pagination */}
+              {activeTotal > 25 && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', pt: 2 }}>
+                  <Pagination
+                    count={Math.ceil(activeTotal / 25)}
+                    page={activePage}
+                    onChange={(_, p) => setActivePage(p)}
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+              )}
+            </Box>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════
+          APPROVALS HISTORY
+      ════════════════════════════════════════════════════════ */}
+      {section === 'history' && (
+        <Card sx={{ mt: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0 }}>
+          <CardContent sx={{ p: 0 }}>
+            {/* ─── History filters ──────────────────────────── */}
+            <Box sx={{
+              display: 'flex', gap: 2, p: 2, alignItems: 'center', flexWrap: 'wrap',
+              borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#fafafa',
+            }}>
+              {/* Level filter */}
+              <FormControl size="small" sx={{ minWidth: 130 }}>
+                <InputLabel>Approval Level</InputLabel>
+                <Select
+                  value={historyLevel}
+                  label="Approval Level"
+                  onChange={(e) => { setHistoryLevel(e.target.value as 'L1' | 'L2' | 'L3'); setHistoryPage(1); }}
+                >
+                  {hasRole(user?.roles || [], ['L1_APPROVER', 'L2_APPROVER', 'L3_ADMIN', 'SYSTEM_ADMIN']) && (
+                    <MenuItem value="L1">L1 Approver</MenuItem>
+                  )}
+                  {hasRole(user?.roles || [], ['L2_APPROVER', 'L3_ADMIN', 'SYSTEM_ADMIN']) && (
+                    <MenuItem value="L2">L2 Approver</MenuItem>
+                  )}
+                  {hasRole(user?.roles || [], ['L3_ADMIN', 'SYSTEM_ADMIN']) && (
+                    <MenuItem value="L3">L3 / Admin</MenuItem>
+                  )}
+                </Select>
+              </FormControl>
+
+              {/* Reporting Month filter */}
+              <FormControl size="small" sx={{ minWidth: 120 }}>
+                <InputLabel>Year</InputLabel>
+                <Select
+                  value={historyYear}
+                  label="Year"
+                  onChange={(e) => { setHistoryYear(e.target.value as number | ''); setHistoryPage(1); }}
+                >
+                  <MenuItem value="">All Years</MenuItem>
+                  {availableYears.map((y) => (
+                    <MenuItem key={y} value={y}>{y}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl size="small" sx={{ minWidth: 130 }}>
+                <InputLabel>Reporting Month</InputLabel>
+                <Select
+                  value={historyMonth}
+                  label="Reporting Month"
+                  onChange={(e) => { setHistoryMonth(e.target.value as number | ''); setHistoryPage(1); }}
+                >
+                  <MenuItem value="">All Months</MenuItem>
+                  {MONTHS.map((name, idx) => (
+                    <MenuItem key={idx + 1} value={idx + 1}>{name}</MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {(historyYear !== '' || historyMonth !== '') && (
+                <Button
+                  size="small" variant="outlined"
+                  onClick={() => { setHistoryYear(''); setHistoryMonth(''); setHistoryPage(1); }}
+                  sx={{ fontSize: '0.75rem' }}
+                >
+                  Clear Filters
+                </Button>
+              )}
+
+              {historyTotal > 0 && (
+                <Typography variant="caption" sx={{ color: 'text.secondary', ml: 'auto' }}>
+                  {historyTotal} record{historyTotal !== 1 ? 's' : ''} found
+                </Typography>
+              )}
+            </Box>
+
+            {/* ─── History table ────────────────────────────── */}
+            <Box sx={{ p: 2 }}>
+              {historyLoading ? (
+                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress /></Box>
+              ) : historyItems.length === 0 ? (
+                <Alert severity="info">
+                  No completed approvals found{historyYear || historyMonth ? ' for the selected period' : ''}.
+                </Alert>
+              ) : (
+                <TableContainer>
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ fontWeight: 700 }}>KRI</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Period</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Submitted By</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Submitted</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Action Taken</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Actioned On</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Final Status</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Comments</TableCell>
+                        {isAdmin && (
+                          <>
+                            <TableCell sx={{ fontWeight: 700 }}>L1</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>L2</TableCell>
+                            <TableCell sx={{ fontWeight: 700 }}>L3</TableCell>
+                          </>
+                        )}
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {historyItems.map((item: any) => (
+                        <TableRow key={item.submission_id} hover>
                           <TableCell>
-                            <IconButton
-                              size="small"
-                              onClick={() => setExpandedRow(expandedRow === item.submission_id ? null : item.submission_id)}
-                            >
-                              {expandedRow === item.submission_id ? <KeyboardArrowUp /> : <KeyboardArrowDown />}
-                            </IconButton>
-                          </TableCell>
-                          <TableCell>
-                            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                            <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.82rem' }}>
                               {item.kri_name || `Status #${item.status_id}`}
                             </Typography>
                             {item.kri_code && (
@@ -296,105 +715,96 @@ export default function ApprovalsPage() {
                               </Typography>
                             )}
                           </TableCell>
-                          <TableCell>
-                            {slaChip(item.rag_status, item.sla_due_dt)}
-                          </TableCell>
-                          <TableCell>{statusChip(item.final_status)}</TableCell>
-                          <TableCell>
-                            <Chip
-                              label={item.pending_with || '—'}
-                              size="small"
-                              variant="outlined"
-                              sx={{ fontWeight: 600, fontSize: '0.72rem' }}
-                            />
-                          </TableCell>
                           <TableCell sx={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
-                            {new Date(item.submitted_dt).toLocaleDateString('en-GB')}
+                            {item.period_year && item.period_month
+                              ? `${MONTHS[item.period_month - 1]} ${item.period_year}`
+                              : '—'}
                           </TableCell>
                           <TableCell sx={{ fontSize: '0.82rem' }}>
                             {item.submitted_by_name || `User #${item.submitted_by}`}
                           </TableCell>
-                          <TableCell align="center">
-                            <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center', flexWrap: 'wrap' }}>
-                              {canApprove && (
-                                <>
-                                  <Button
-                                    size="small" variant="contained" color="success" startIcon={<CheckCircle />}
-                                    onClick={() => handleAction(item.submission_id, 'APPROVED')}
-                                    sx={{ fontSize: '0.72rem' }}
-                                  >
-                                    Approve
-                                  </Button>
-                                  <Button
-                                    size="small" variant="outlined" color="warning" startIcon={<Replay />}
-                                    onClick={() => handleAction(item.submission_id, 'REWORK')}
-                                    sx={{ fontSize: '0.72rem' }}
-                                  >
-                                    Rework
-                                  </Button>
-                                  <Button
-                                    size="small" variant="outlined" color="error" startIcon={<Cancel />}
-                                    onClick={() => handleAction(item.submission_id, 'REJECTED')}
-                                    sx={{ fontSize: '0.72rem' }}
-                                  >
-                                    Reject
-                                  </Button>
-                                </>
-                              )}
-                              {canEscalate && level !== 'L3' && (
-                                <Button
-                                  size="small" variant="contained" color="info" startIcon={<ArrowForward />}
-                                  onClick={() => handleAction(item.submission_id, 'ESCALATE')}
-                                  sx={{ fontSize: '0.72rem' }}
-                                >
-                                  Escalate
-                                </Button>
-                              )}
-                              <Tooltip title="View Evidence">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => navigate(`/evidence`)}
-                                >
-                                  <Folder fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                              <Tooltip title="Add Comment">
-                                <IconButton
-                                  size="small"
-                                  onClick={() => {
-                                    setCommentDialog({ open: true, statusId: item.status_id, kriId: item.kri_id });
-                                    setCommentText('');
-                                  }}
-                                >
-                                  <Comment fontSize="small" />
-                                </IconButton>
-                              </Tooltip>
-                            </Box>
+                          <TableCell sx={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                            {new Date(item.submitted_dt).toLocaleString('en-GB', {
+                              day: '2-digit', month: 'short', year: 'numeric',
+                              hour: '2-digit', minute: '2-digit',
+                            })}
                           </TableCell>
+                          <TableCell>{actionChip(item.action)}</TableCell>
+                          <TableCell sx={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}>
+                            {item.action_dt
+                              ? new Date(item.action_dt).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })
+                              : '—'}
+                          </TableCell>
+                          <TableCell>{statusChip(item.final_status)}</TableCell>
+                          <TableCell sx={{ fontSize: '0.78rem', maxWidth: 200 }}>
+                            <Typography noWrap variant="caption" title={item.comments}>
+                              {item.comments || '—'}
+                            </Typography>
+                          </TableCell>
+                          {isAdmin && (
+                            <>
+                              <TableCell sx={{ fontSize: '0.75rem' }}>
+                                {item.l1_action ? (
+                                  <Box>
+                                    {actionChip(item.l1_action)}
+                                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                                      {item.l1_approver_name || '—'}
+                                    </Typography>
+                                  </Box>
+                                ) : '—'}
+                              </TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem' }}>
+                                {item.l2_action ? (
+                                  <Box>
+                                    {actionChip(item.l2_action)}
+                                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                                      {item.l2_approver_name || '—'}
+                                    </Typography>
+                                  </Box>
+                                ) : '—'}
+                              </TableCell>
+                              <TableCell sx={{ fontSize: '0.75rem' }}>
+                                {item.l3_action ? (
+                                  <Box>
+                                    {actionChip(item.l3_action)}
+                                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary' }}>
+                                      {item.l3_approver_name || '—'}
+                                    </Typography>
+                                  </Box>
+                                ) : '—'}
+                              </TableCell>
+                            </>
+                          )}
                         </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              )}
 
-                        {/* ─── Expandable Audit Trail ─── */}
-                        <TableRow>
-                          <TableCell colSpan={8} sx={{ p: 0, border: 0 }}>
-                            <Collapse in={expandedRow === item.submission_id} timeout="auto" unmountOnExit>
-                              <InlineAuditTrail item={item} />
-                            </Collapse>
-                          </TableCell>
-                        </TableRow>
-                      </React.Fragment>
-                    ))}
-                  </TableBody>
-                </Table>
-              </TableContainer>
-            )}
-          </Box>
-        </CardContent>
-      </Card>
+              {historyTotal > 25 && (
+                <Box sx={{ display: 'flex', justifyContent: 'center', pt: 2 }}>
+                  <Pagination
+                    count={Math.ceil(historyTotal / 25)}
+                    page={historyPage}
+                    onChange={(_, p) => setHistoryPage(p)}
+                    color="primary"
+                    size="small"
+                  />
+                </Box>
+              )}
+            </Box>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ─── Action Confirmation Dialog ───────────────────── */}
       <Dialog
         open={actionDialog.open}
-        onClose={() => setActionDialog({ open: false, submissionId: null, action: '' })}
+        onClose={() => {
+          setActionDialog({ open: false, submissionId: null, action: '' });
+          setCommentsTouched(false);
+        }}
         maxWidth="sm" fullWidth
       >
         <DialogTitle sx={{ fontWeight: 700 }}>
@@ -402,14 +812,20 @@ export default function ApprovalsPage() {
         </DialogTitle>
         <DialogContent dividers>
           <TextField
-            label="Comments"
-            multiline
-            rows={3}
-            fullWidth
+            label="Comments *"
+            multiline rows={3} fullWidth
             value={comments}
-            onChange={(e) => setComments(e.target.value)}
+            onChange={(e) => { setComments(e.target.value); setCommentsTouched(true); }}
+            onBlur={() => setCommentsTouched(true)}
             sx={{ mb: 2 }}
-            placeholder="Optional: add a note for this action"
+            required
+            error={commentsTouched && !comments.trim()}
+            helperText={
+              commentsTouched && !comments.trim()
+                ? 'A comment is required before submitting this action'
+                : 'Please explain the reason for this action'
+            }
+            placeholder="Required: describe the reason for this action..."
           />
           {actionDialog.action === 'APPROVED' && nextApprovers.length > 0 && (
             <FormControl fullWidth>
@@ -428,7 +844,10 @@ export default function ApprovalsPage() {
           )}
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setActionDialog({ open: false, submissionId: null, action: '' })}>Cancel</Button>
+          <Button onClick={() => {
+            setActionDialog({ open: false, submissionId: null, action: '' });
+            setCommentsTouched(false);
+          }}>Cancel</Button>
           <Button
             variant="contained"
             color={
@@ -436,8 +855,17 @@ export default function ApprovalsPage() {
               : actionDialog.action === 'REJECTED' ? 'error'
               : 'warning'
             }
-            onClick={confirmAction}
-            disabled={actionMutation.isPending}
+            disabled={actionMutation.isPending || !comments.trim()}
+            onClick={() => {
+              if (!actionDialog.submissionId) return;
+              if (!comments.trim()) { setCommentsTouched(true); return; }
+              actionMutation.mutate({
+                id: actionDialog.submissionId,
+                action: actionDialog.action,
+                comments,
+                next_approver_id: nextApproverId || undefined,
+              });
+            }}
           >
             {actionMutation.isPending ? 'Processing...' : `Confirm ${actionDialog.action}`}
           </Button>
@@ -453,10 +881,7 @@ export default function ApprovalsPage() {
         <DialogTitle sx={{ fontWeight: 700 }}>Add Comment</DialogTitle>
         <DialogContent dividers>
           <TextField
-            label="Comment"
-            multiline
-            rows={4}
-            fullWidth
+            label="Comment" multiline rows={4} fullWidth
             value={commentText}
             onChange={(e) => setCommentText(e.target.value)}
             placeholder="Enter your comment..."
