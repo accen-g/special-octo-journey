@@ -4,7 +4,7 @@ import {
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
   Paper, Button, CircularProgress, Tooltip, Dialog, DialogTitle,
   DialogContent, DialogActions, Pagination,
-  ToggleButtonGroup, ToggleButton, Select, MenuItem, FormControl, InputLabel,
+  ToggleButtonGroup, ToggleButton,
 } from '@mui/material';
 import { Comment, Visibility, ViewList, Apps } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
@@ -12,6 +12,8 @@ import { controlApi, lookupApi } from '../../api/client';
 import { useAppSelector } from '../../store';
 import StatusBadge from '../../components/common/StatusBadge';
 import FilterBar from '../../components/common/FilterBar';
+import GlobalFilterToolbar from '../../components/common/GlobalFilterToolbar';
+import TableHeaderFilters from '../../components/common/TableHeaderFilters';
 import { hasRole } from '../../utils/helpers';
 import type { MonthlyStatus, Dimension, Region } from '../../types';
 
@@ -26,17 +28,22 @@ interface KriMatrixItem {
   dimensions: Record<string, { status: string; sla_due_dt?: string }>;
 }
 
-// ─── Status config for KRI heatmap (Option 2: tinted cell BG) ─
+// ─── Status config for KRI heatmap ────────────────────────────
 const STATUS_HEAT: Record<string, { cellBg: string; hoverBg: string; color: string; label: string }> = {
+  // ── Non-management statuses ───────────────────────────────
   COMPLETED:        { cellBg: '#f0fdf4', hoverBg: '#dcfce7', color: '#15803d', label: 'Completed'        },
   APPROVED:         { cellBg: '#f0fdf4', hoverBg: '#dcfce7', color: '#15803d', label: 'Approved'         },
   SLA_MET:          { cellBg: '#f0fdf4', hoverBg: '#dcfce7', color: '#15803d', label: 'SLA Met'          },
-  IN_PROGRESS:      { cellBg: '#eff6ff', hoverBg: '#dbeafe', color: '#1d4ed8', label: 'In Progress'      },
+  // ── IN_PROGRESS: no bg highlight, text-only (matches Not Started bg) ─
+  IN_PROGRESS:      { cellBg: 'transparent', hoverBg: '#f9fafb', color: '#1d4ed8', label: 'In Progress'  },
   PENDING_APPROVAL: { cellBg: '#fffbeb', hoverBg: '#fef3c7', color: '#b45309', label: 'Pending Approval' },
   REWORK:           { cellBg: '#fff7ed', hoverBg: '#ffedd5', color: '#c2410c', label: 'Rework'           },
   SLA_BREACHED:     { cellBg: '#fff5f5', hoverBg: '#fee2e2', color: '#dc2626', label: 'SLA Breached'     },
   REJECTED:         { cellBg: '#fdf2f8', hoverBg: '#fce7f3', color: '#9d174d', label: 'Rejected'         },
   NOT_STARTED:      { cellBg: 'transparent', hoverBg: '#f9fafb', color: '#9ca3af', label: 'Not Started'  },
+  // ── Management-specific statuses ─────────────────────────
+  PASS:             { cellBg: '#f0fdf4', hoverBg: '#dcfce7', color: '#15803d', label: 'Pass'             },
+  FAIL:             { cellBg: '#fff5f5', hoverBg: '#fee2e2', color: '#dc2626', label: 'Fail'             },
 };
 
 // Returns cell bg for TableCell sx
@@ -79,9 +86,27 @@ export default function DataControlPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('controls');
 
-  // KRI View header filters (client-side)
-  const [kriRegionFilter, setKriRegionFilter] = useState('');
-  const [kriCategoryFilter, setKriCategoryFilter] = useState('');
+  // Control View inline column filters
+  const [controlFilters, setControlFilters] = useState({
+    kriCode: '',
+    kriName: '',
+    region: '',
+    category: '',
+    status: '',
+    owner: '',
+    controlType: '',
+  });
+
+  // KRI View inline column filters
+  const [kriFilters, setKriFilters] = useState({
+    kriCode: '',
+    kriName: '',
+    region: '',
+    category: '',
+  });
+
+  // KRI View dimension column filters (keyed by dimension_name)
+  const [dimensionFilters, setDimensionFilters] = useState<Record<string, string>>({});
 
   const isManagement = hasRole(user?.roles || [], ['MANAGEMENT']);
 
@@ -166,14 +191,32 @@ export default function DataControlPage() {
     return Array.from(kriMap.values());
   }, [allControlsData]);
 
+  // Apply client-side Control View filters
+  const filteredItems = useMemo(() => {
+    return items.filter((item) => {
+      if (controlFilters.kriCode && !item.kri_code?.toLowerCase().includes(controlFilters.kriCode.toLowerCase())) return false;
+      if (controlFilters.kriName && !item.kri_name?.toLowerCase().includes(controlFilters.kriName.toLowerCase())) return false;
+      if (controlFilters.region && item.region_name !== controlFilters.region) return false;
+      if (controlFilters.category && item.category_name !== controlFilters.category) return false;
+      if (controlFilters.status && item.status !== controlFilters.status) return false;
+      return true;
+    });
+  }, [items, controlFilters]);
+
   // Apply client-side KRI View filters
   const kriMatrix = useMemo(() => {
     return kriMatrixRaw.filter((kri) => {
-      if (kriRegionFilter && kri.region_name !== kriRegionFilter) return false;
-      if (kriCategoryFilter && kri.category_name !== kriCategoryFilter) return false;
+      if (kriFilters.kriCode && !kri.kri_code?.toLowerCase().includes(kriFilters.kriCode.toLowerCase())) return false;
+      if (kriFilters.kriName && !kri.kri_name?.toLowerCase().includes(kriFilters.kriName.toLowerCase())) return false;
+      if (kriFilters.region && kri.region_name !== kriFilters.region) return false;
+      if (kriFilters.category && kri.category_name !== kriFilters.category) return false;
+      // Per-dimension status filters
+      for (const [dimName, filterStatus] of Object.entries(dimensionFilters)) {
+        if (filterStatus && kri.dimensions[dimName]?.status !== filterStatus) return false;
+      }
       return true;
     });
-  }, [kriMatrixRaw, kriRegionFilter, kriCategoryFilter]);
+  }, [kriMatrixRaw, kriFilters, dimensionFilters]);
 
   const statusCounts = isManagement
     ? {
@@ -198,7 +241,7 @@ export default function DataControlPage() {
           {/* ─── Section header: title + view toggle top-right ─── */}
           <Box sx={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            px: 2, pt: 1.5, pb: viewMode === 'controls' ? 0 : 1.5,
+            px: 2, pt: 1.5, pb: 0,
           }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 700, color: 'text.secondary', letterSpacing: 0.5, textTransform: 'uppercase', fontSize: '0.72rem' }}>
               Data Control Workbench
@@ -246,6 +289,9 @@ export default function DataControlPage() {
             </ToggleButtonGroup>
           </Box>
 
+          {/* ─── Global Filter Toolbar (Period & Region) ────────── */}
+          <GlobalFilterToolbar regions={regions} />
+
           {/* ─── 7 Dimension Tabs (Control View only) ─────────── */}
           {viewMode === 'controls' && (
             <Tabs
@@ -273,56 +319,6 @@ export default function DataControlPage() {
                 />
               ))}
             </Tabs>
-          )}
-
-          {/* ─── KRI View header filters ───────────────────────── */}
-          {viewMode === 'kris' && (
-            <Box sx={{
-              display: 'flex', gap: 2, px: 2, pb: 1.5, alignItems: 'center', flexWrap: 'wrap',
-              borderBottom: '1px solid', borderColor: 'divider', bgcolor: '#fafafa',
-            }}>
-              <FormControl size="small" sx={{ minWidth: 150 }}>
-                <InputLabel>Region</InputLabel>
-                <Select
-                  value={kriRegionFilter}
-                  label="Region"
-                  onChange={(e) => setKriRegionFilter(e.target.value)}
-                >
-                  <MenuItem value="">All Regions</MenuItem>
-                  {(regions as any[]).map((r: any) => (
-                    <MenuItem key={r.region_id} value={r.region_name}>{r.region_name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              <FormControl size="small" sx={{ minWidth: 160 }}>
-                <InputLabel>Category</InputLabel>
-                <Select
-                  value={kriCategoryFilter}
-                  label="Category"
-                  onChange={(e) => setKriCategoryFilter(e.target.value)}
-                >
-                  <MenuItem value="">All Categories</MenuItem>
-                  {(categories as any[]).map((c: any) => (
-                    <MenuItem key={c.category_id} value={c.category_name}>{c.category_name}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-
-              {(kriRegionFilter || kriCategoryFilter) && (
-                <Button
-                  size="small" variant="text" sx={{ fontSize: '0.75rem' }}
-                  onClick={() => { setKriRegionFilter(''); setKriCategoryFilter(''); }}
-                >
-                  Clear
-                </Button>
-              )}
-
-              <Typography variant="caption" sx={{ color: 'text.secondary', ml: 'auto' }}>
-                {kriMatrix.length} KRI{kriMatrix.length !== 1 ? 's' : ''}
-                {(kriRegionFilter || kriCategoryFilter) ? ' (filtered)' : ''}
-              </Typography>
-            </Box>
           )}
 
           {/* ─── Status Filter Chips (Control View) ───────────── */}
@@ -389,9 +385,77 @@ export default function DataControlPage() {
                       <TableCell sx={{ fontWeight: 700 }}>Approval</TableCell>
                       <TableCell sx={{ fontWeight: 700 }} align="center">Actions</TableCell>
                     </TableRow>
+                    <TableHeaderFilters
+                      filters={[
+                        {
+                          key: 'kriCode',
+                          label: 'KRI Code',
+                          type: 'text',
+                          value: controlFilters.kriCode,
+                          onChange: (v) => setControlFilters({ ...controlFilters, kriCode: v }),
+                        },
+                        {
+                          key: 'kriName',
+                          label: 'KRI Name',
+                          type: 'text',
+                          value: controlFilters.kriName,
+                          onChange: (v) => setControlFilters({ ...controlFilters, kriName: v }),
+                        },
+                        {
+                          key: 'region',
+                          label: 'Region',
+                          type: 'select',
+                          value: controlFilters.region,
+                          options: regions.map((r) => ({ value: r.region_name, label: r.region_name })),
+                          onChange: (v) => setControlFilters({ ...controlFilters, region: v }),
+                        },
+                        {
+                          key: 'category',
+                          label: 'Category',
+                          type: 'select',
+                          value: controlFilters.category,
+                          options: categories.map((c: any) => ({ value: c.category_name, label: c.category_name })),
+                          onChange: (v) => setControlFilters({ ...controlFilters, category: v }),
+                        },
+                        {
+                          key: 'status',
+                          label: 'Status',
+                          type: 'select',
+                          value: controlFilters.status,
+                          options: [
+                            { value: 'PASS', label: 'Pass' },
+                            { value: 'FAIL', label: 'Fail' },
+                            { value: 'IN_PROGRESS', label: 'In Progress' },
+                          ],
+                          onChange: (v) => setControlFilters({ ...controlFilters, status: v }),
+                        },
+                        {
+                          key: 'slaDue',
+                          label: 'SLA Due',
+                          type: 'text',
+                          value: '',
+                          onChange: () => {},
+                        },
+                        {
+                          key: 'approval',
+                          label: 'Approval',
+                          type: 'text',
+                          value: '',
+                          onChange: () => {},
+                        },
+                        {
+                          key: 'actions',
+                          label: 'Actions',
+                          type: 'text',
+                          value: '',
+                          onChange: () => {},
+                        },
+                      ]}
+                      borderStyle={{ borderRight: '1px solid rgba(0,0,0,0.07)' }}
+                    />
                   </TableHead>
                   <TableBody>
-                    {items.map((row) => (
+                    {filteredItems.map((row) => (
                       <TableRow
                         key={row.status_id}
                         hover
@@ -425,10 +489,10 @@ export default function DataControlPage() {
                         </TableCell>
                       </TableRow>
                     ))}
-                    {items.length === 0 && (
+                    {filteredItems.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={8} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                          No control records found for this period and dimension.
+                          No control records found matching the selected filters.
                         </TableCell>
                       </TableRow>
                     )}
@@ -477,6 +541,49 @@ export default function DataControlPage() {
                         </TableCell>
                       ))}
                     </TableRow>
+                    <TableHeaderFilters
+                      filters={[
+                        {
+                          key: 'kriCode',
+                          label: 'KRI Code',
+                          type: 'text',
+                          value: kriFilters.kriCode,
+                          onChange: (v) => setKriFilters({ ...kriFilters, kriCode: v }),
+                        },
+                        {
+                          key: 'kriName',
+                          label: 'KRI Name',
+                          type: 'text',
+                          value: kriFilters.kriName,
+                          onChange: (v) => setKriFilters({ ...kriFilters, kriName: v }),
+                        },
+                        {
+                          key: 'region',
+                          label: 'Region',
+                          type: 'select',
+                          value: kriFilters.region,
+                          options: regions.map((r) => ({ value: r.region_name, label: r.region_name })),
+                          onChange: (v) => setKriFilters({ ...kriFilters, region: v }),
+                        },
+                        {
+                          key: 'category',
+                          label: 'Category',
+                          type: 'select',
+                          value: kriFilters.category,
+                          options: categories.map((c: any) => ({ value: c.category_name, label: c.category_name })),
+                          onChange: (v) => setKriFilters({ ...kriFilters, category: v }),
+                        },
+                        ...dimensions.map((dim) => ({
+                          key: `dim-${dim.dimension_id}`,
+                          label: dim.dimension_name,
+                          type: 'select' as const,
+                          value: dimensionFilters[dim.dimension_name] || '',
+                          options: Object.entries(STATUS_HEAT).map(([k, v]) => ({ value: k, label: v.label })),
+                          onChange: (v: string) => setDimensionFilters((prev) => ({ ...prev, [dim.dimension_name]: v })),
+                        })),
+                      ]}
+                      borderStyle={{ borderRight: '1px solid rgba(0,0,0,0.07)' }}
+                    />
                   </TableHead>
                   <TableBody>
                     {kriMatrix.map((kri) => (
@@ -520,7 +627,7 @@ export default function DataControlPage() {
                     {kriMatrix.length === 0 && (
                       <TableRow>
                         <TableCell colSpan={4 + dimensions.length} align="center" sx={{ py: 4, color: 'text.secondary' }}>
-                          No KRI records found{kriRegionFilter || kriCategoryFilter ? ' matching the selected filters' : ' for this period'}.
+                          No KRI records found matching the selected filters.
                         </TableCell>
                       </TableRow>
                     )}
