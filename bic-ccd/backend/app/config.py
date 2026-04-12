@@ -11,7 +11,7 @@ class Settings(BaseSettings):
     DEBUG: bool = False
     ENV: str = "development"
     SECRET_KEY: str = "change-me-in-production"
-    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
+    CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000,http://localhost:8000s"
 
     # Oracle Database
     DB_HOST: str = "localhost"
@@ -34,7 +34,27 @@ class Settings(BaseSettings):
     S3_SECRET_KEY: str = ""
     S3_REGION: str = "us-east-1"
 
-    # SMTP
+    # S3 presigned URL TTL
+    S3_PRESIGNED_EXPIRY: int = 900   # 15 minutes
+
+    # Evidence S3 base path & limits
+    EVIDENCE_S3_BASE_PATH: str = "BIC/KRI"
+    EVIDENCE_MAX_FILE_SIZE_MB: int = 25
+
+    # Email HTTP service (config-driven — no hardcoding)
+    EMAIL_SERVICE_URL: str = ""          # full URL to /mail/send endpoint
+    EMAIL_FROM_ADDRESS: str = ""
+    EMAIL_UUID_HEADER: str = ""
+    EMAIL_TEMPLATE_TYPE: str = "BicDataMetrics"
+    EMAIL_TEMPLATE_NAME: str = ""
+    EMAIL_ENVIRONMENT: str = "UAT"
+    EMAIL_MODULE_NAME: str = "BIC_KRI_EVIDENCE"
+
+    # Dev-mode mock switches — controlled exclusively via .env (False = prod-safe default)
+    DEV_MOCK_EMAIL: bool = False  # true  → write email payloads to disk instead of HTTP call
+    DEV_MOCK_S3: bool = False     # true  → skip real S3, write to local_evidence_store/ on disk
+
+    # SMTP (legacy — kept for backward compat)
     SMTP_HOST: str = "localhost"
     SMTP_PORT: int = 587
     SMTP_USER: str = ""

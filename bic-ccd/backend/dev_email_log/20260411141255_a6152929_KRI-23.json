@@ -1,0 +1,15 @@
+{
+  "uuid": "a6152929-33f4-47cc-9ec0-f86bf12b15d0",
+  "subject": "KRI-23 [April 2026] | Iter-1 | Rejected",
+  "to": [
+    "dh71298@company.com",
+    "gd24043@company.com"
+  ],
+  "from": "noreply@dev.local",
+  "kri_id": 23,
+  "kri_code": "KRI-CEP-023",
+  "period": "April 2026",
+  "iteration": 1,
+  "action": "Rejected",
+  "sent_at": "2026-04-11T14:12:55.615524"
+}

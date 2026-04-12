@@ -1,0 +1,2 @@
+  FK=SYS_C0026178 col=REGION_ID -> parent_constraint=SYS_C0026109 -> parent_table=REGION_MASTER
+  FK=SYS_C0026177 col=USER_ID -> parent_constraint=SYS_C0026141 -> parent_table=APP_USER

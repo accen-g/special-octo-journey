@@ -1,0 +1,26 @@
+=== REGION_MASTER columns ===
+  REGION_ID (NUMBER, nullable=N)
+  REGION_CODE (VARCHAR2, nullable=N)
+  REGION_NAME (VARCHAR2, nullable=N)
+  IS_ACTIVE (NUMBER, nullable=N)
+  CREATED_DT (DATE, nullable=N)
+  UPDATED_DT (DATE, nullable=N)
+  CREATED_BY (VARCHAR2, nullable=N)
+  UPDATED_BY (VARCHAR2, nullable=N)
+
+=== REGION_MASTER rows ===
+  (1, 'UK', 'United Kingdom', 1, datetime.datetime(2026, 4, 5, 11, 41, 49), datetime.datetime(2026, 4, 5, 11, 41, 49), 'SYSTEM', 'SYSTEM')
+  (2, 'SGP', 'Singapore', 1, datetime.datetime(2026, 4, 5, 11, 41, 49), datetime.datetime(2026, 4, 5, 11, 41, 49), 'SYSTEM', 'SYSTEM')
+  (3, 'CEP', 'Central Europe', 1, datetime.datetime(2026, 4, 5, 11, 41, 49), datetime.datetime(2026, 4, 5, 11, 41, 49), 'SYSTEM', 'SYSTEM')
+
+=== BIC_REGION columns ===
+  REGION_ID (NUMBER, nullable=N)
+  REGION_NAME (VARCHAR2, nullable=N)
+  CTRL_LEAD (VARCHAR2, nullable=Y)
+  GOV_TEAM (VARCHAR2, nullable=Y)
+  REGION_CODE (VARCHAR2, nullable=Y)
+  IS_ACTIVE (NUMBER, nullable=N)
+  CREATED_DT (DATE, nullable=N)
+  UPDATED_DT (DATE, nullable=N)
+  CREATED_BY (VARCHAR2, nullable=N)
+  UPDATED_BY (VARCHAR2, nullable=N)

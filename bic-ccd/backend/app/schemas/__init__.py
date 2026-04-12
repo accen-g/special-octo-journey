@@ -6,7 +6,7 @@ Oracle CHECK constraint DDL.  Do NOT redefine enums here.
 """
 from datetime import datetime, date
 from typing import Optional, List, Any
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 # Re-export all enums from central module so existing imports like
 #   from app.schemas import ControlStatus
@@ -463,3 +463,225 @@ class DataSourceResponse(DataSourceBase):
     model_config = ConfigDict(from_attributes=True)
     source_id: int
     is_active: bool
+
+
+# ─── KRI Onboarding (Bluesheet) ─────────────────────────────
+
+class KriBluesheetCreate(BaseModel):
+    """Full payload for onboarding a new KRI through the bluesheet wizard."""
+    # Step 1 — Basic Info
+    kri_code: str = Field(..., min_length=1, max_length=30)
+    kri_name: str = Field(..., min_length=1, max_length=300)
+    description: Optional[str] = None
+    legacy_kri_id: Optional[str] = None
+
+    # Step 2 — Classification
+    region_id: int
+    category_id: int
+    risk_level: str = "MEDIUM"
+    threshold: Optional[str] = None
+    circuit_breaker: Optional[str] = None
+    frequency: str = "Monthly"
+    dq_objectives: Optional[str] = None
+    control_ids: Optional[str] = None
+
+    # Step 3 — Roles & Responsibilities
+    primary_senior_manager: Optional[str] = None
+    metric_owner_name: Optional[str] = None
+    remediation_owner_name: Optional[str] = None
+    bi_metrics_lead: Optional[str] = None
+    data_provider_name: Optional[str] = None
+
+    # Step 4 — Scorecard Coverage
+    sc_uk: bool = False
+    sc_finance: bool = False
+    sc_risk: bool = False
+    sc_liquidity: bool = False
+    sc_capital: bool = False
+    sc_risk_reports: bool = False
+    sc_markets: bool = False
+
+    # Step 5 — Rationale & Scope
+    why_selected: Optional[str] = None
+    threshold_rationale: Optional[str] = None
+    limitations: Optional[str] = None
+    kri_calculation: Optional[str] = None
+
+    # Step 6 — Runbook metadata (file uploaded separately)
+    runbook_version: Optional[str] = "v1.0"
+    runbook_review_date: Optional[date] = None
+    runbook_notes: Optional[str] = None
+
+    @field_validator('runbook_review_date', mode='before')
+    @classmethod
+    def coerce_empty_date(cls, v):
+        """Accept empty string from the UI — treat it as None."""
+        if v == '' or v is None:
+            return None
+        return v
+
+    @field_validator('region_id', 'category_id', mode='before')
+    @classmethod
+    def coerce_ids(cls, v):
+        """Convert string '0' or '' to int; 0 keeps as-is (validated at DB layer)."""
+        if v == '' or v is None:
+            return 0
+        return int(v)
+
+
+class KriBluesheetResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    bluesheet_id: int
+    kri_id: int
+    kri_code: Optional[str] = None
+    kri_name: Optional[str] = None
+    region_name: Optional[str] = None
+    category_name: Optional[str] = None
+    risk_level: Optional[str] = None
+    frequency: Optional[str] = None
+    legacy_kri_id: Optional[str] = None
+    threshold: Optional[str] = None
+    circuit_breaker: Optional[str] = None
+    control_ids: Optional[str] = None
+    dq_objectives: Optional[str] = None
+    primary_senior_manager: Optional[str] = None
+    metric_owner_name: Optional[str] = None
+    remediation_owner_name: Optional[str] = None
+    bi_metrics_lead: Optional[str] = None
+    data_provider_name: Optional[str] = None
+    sc_uk: bool = False
+    sc_finance: bool = False
+    sc_risk: bool = False
+    sc_liquidity: bool = False
+    sc_capital: bool = False
+    sc_risk_reports: bool = False
+    sc_markets: bool = False
+    why_selected: Optional[str] = None
+    threshold_rationale: Optional[str] = None
+    limitations: Optional[str] = None
+    kri_calculation: Optional[str] = None
+    runbook_s3_path: Optional[str] = None
+    runbook_filename: Optional[str] = None
+    runbook_version: Optional[str] = None
+    runbook_review_date: Optional[date] = None
+    runbook_notes: Optional[str] = None
+    approval_status: str = "PENDING_APPROVAL"
+    submitted_by: Optional[int] = None
+    submitted_dt: Optional[datetime] = None
+    submitter_name: Optional[str] = None
+    created_dt: Optional[datetime] = None
+
+
+class KriApprovalLogResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    log_id: int
+    kri_id: int
+    action: str
+    performed_by: int
+    performed_dt: datetime
+    comments: Optional[str] = None
+    previous_status: Optional[str] = None
+    new_status: Optional[str] = None
+    performer_name: Optional[str] = None
+
+
+class KriApprovalActionRequest(BaseModel):
+    action: str = Field(..., pattern="^(APPROVED|REJECTED|REWORK)$")
+    comments: Optional[str] = None
+
+
+class KriConfigListItem(BaseModel):
+    """Summary row for the KRI Config listing table."""
+    model_config = ConfigDict(from_attributes=True)
+
+    kri_id: int
+    kri_code: Optional[str] = None
+    kri_name: str
+    description: Optional[str] = None
+    region_name: Optional[str] = None
+    category_name: Optional[str] = None
+    risk_level: str = "MEDIUM"
+    frequency: Optional[str] = None
+    data_provider_name: Optional[str] = None
+    metric_owner_name: Optional[str] = None
+    remediation_owner_name: Optional[str] = None
+    version: str = "1.0"
+    approval_status: str = "DRAFT"
+    submitted_by_name: Optional[str] = None
+    submitted_dt: Optional[datetime] = None
+
+
+# ════════════════════════════════════════════════════════════
+# AUDIT EVIDENCE SCHEMAS
+# ════════════════════════════════════════════════════════════
+
+class AuditEvidenceItem(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    evidence_id: int
+    kri_id: int
+    kri_code: Optional[str] = None
+    kri_name: Optional[str] = None
+    control_id: Optional[str] = None
+    region_code: Optional[str] = None
+    period_year: int
+    period_month: int
+    iteration: Optional[int] = None
+    evidence_type: str          # manual | auto | email
+    action: Optional[str] = None
+    sender: Optional[str] = None
+    receiver: Optional[str] = None
+    file_name: str
+    s3_object_path: str
+    uploaded_by_name: Optional[str] = None
+    notes: Optional[str] = None
+    is_unmapped: bool = False
+    email_uuid: Optional[str] = None
+    created_dt: Optional[datetime] = None
+
+
+class AuditEvidenceKriRow(BaseModel):
+    """Summary row for the Evidence page KRI table."""
+    kri_id: int
+    kri_code: Optional[str] = None
+    kri_name: str
+    region_name: Optional[str] = None
+    region_code: Optional[str] = None
+    control_id: Optional[str] = None
+    data_provider_name: Optional[str] = None
+    status: str
+    evidence_count: int = 0
+    period_year: int
+    period_month: int
+
+
+class AuditSummaryResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    summary_id: int
+    kri_id: int
+    period_year: int
+    period_month: int
+    s3_path: str
+    generated_dt: Optional[datetime] = None
+    l3_approver_name: Optional[str] = None
+    final_status: str = "APPROVED"
+    total_iterations: int = 0
+    total_evidences: int = 0
+    total_emails: int = 0
+
+
+class OutboundEmailRequest(BaseModel):
+    kri_id: int
+    year: int
+    month: int
+    action: str          # Submission | Rework Required | Response | L1 Approved | ...
+    recipient_emails: List[str]
+    performed_by_user_id: Optional[int] = None
+
+
+class GenerateSummaryRequest(BaseModel):
+    year: int
+    month: int

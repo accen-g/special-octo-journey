@@ -1,0 +1,14 @@
+{
+  "uuid": "a1b2c3d4-0000-0000-0000-seed000000001",
+  "subject": "KRI-1 [March 2026] | Iter-1 | L1 Approved",
+  "to": [
+    "data.provider@company.com"
+  ],
+  "from": "dl.bic.metrics@company.com",
+  "kri_id": 1,
+  "kri_code": "UK-KRI-001",
+  "period": "March 2026",
+  "iteration": 1,
+  "action": "L1 Approved",
+  "sent_at": "2026-03-05T10:00:00"
+}

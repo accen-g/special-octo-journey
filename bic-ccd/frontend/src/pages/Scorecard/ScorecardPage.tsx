@@ -14,6 +14,10 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../../api/client';
 import { useAppSelector } from '../../store';
 import { hasRole } from '../../utils/helpers';
+import StatusChip from '../../components/common/StatusChip';
+
+// Canonical table header sx
+const TH_SX = { fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' };
 
 // ─── API client (inline — avoids touching client.ts for now) ────────────────
 const scorecardApi = {
@@ -47,21 +51,6 @@ const ragChip = (rag: string | null) => {
   );
 };
 
-const statusChip = (status: string) => {
-  const map: Record<string, { label: string; bg: string; color: string }> = {
-    DRAFT:      { label: 'Draft',      bg: '#e3f2fd', color: '#1565c0' },
-    L1_PENDING: { label: 'Pending Review', bg: '#fff8e1', color: '#f57c00' },
-    L2_PENDING: { label: 'L2 Pending', bg: '#fff3e0', color: '#e65100' },
-    APPROVED:   { label: 'Approved',   bg: '#e8f5e9', color: '#2e7d32' },
-    REJECTED:   { label: 'Rejected',   bg: '#ffebee', color: '#c62828' },
-    REWORK:     { label: 'Rework',     bg: '#fff3e0', color: '#e65100' },
-  };
-  const s = map[status] || { label: status, bg: '#f5f5f5', color: '#616161' };
-  return (
-    <Chip label={s.label} size="small"
-      sx={{ bgcolor: s.bg, color: s.color, fontWeight: 700, fontSize: '0.72rem' }} />
-  );
-};
 
 const slaBar = (pct: number) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 120 }}>
@@ -105,7 +94,7 @@ const ScorecardRow = ({ sc, isChecker, onApprove, onReject }: {
         <TableCell sx={{ fontWeight: 700, fontSize: '0.82rem' }}>
           {MONTHS[(sc.month ?? 1) - 1]} {sc.year}
         </TableCell>
-        <TableCell>{statusChip(sc.final_status)}</TableCell>
+        <TableCell><StatusChip status={sc.final_status} /></TableCell>
         <TableCell sx={{ fontSize: '0.82rem' }}>{sc.submitted_by}</TableCell>
         <TableCell sx={{ fontSize: '0.78rem', color: 'text.secondary' }}>
           {sc.submitted_dt ? new Date(sc.submitted_dt).toLocaleDateString('en-GB') : '—'}
@@ -159,7 +148,7 @@ const ScorecardRow = ({ sc, isChecker, onApprove, onReject }: {
                         <TableHead>
                           <TableRow>
                             {['KRI', 'Control', 'Status', 'RAG', 'SLA Met', 'Due Date'].map((h) => (
-                              <TableCell key={h} sx={{ fontWeight: 700, fontSize: '0.72rem', py: 0.5, bgcolor: '#f5f5f5' }}>{h}</TableCell>
+                              <TableCell key={h} sx={{ fontWeight: 700, fontSize: '0.72rem', py: 0.5, whiteSpace: 'nowrap' }}>{h}</TableCell>
                             ))}
                           </TableRow>
                         </TableHead>
@@ -327,9 +316,9 @@ export default function ScorecardPage() {
     <TableContainer component={Paper} variant="outlined">
       <Table size="small">
         <TableHead>
-          <TableRow sx={{ bgcolor: '#f5f7fa' }}>
+          <TableRow>
             {tableHeaders.map((h) => (
-              <TableCell key={h} sx={{ fontWeight: 700, fontSize: '0.78rem', py: 1 }}>{h}</TableCell>
+              <TableCell key={h} sx={{ ...TH_SX, py: 1 }}>{h}</TableCell>
             ))}
           </TableRow>
         </TableHead>

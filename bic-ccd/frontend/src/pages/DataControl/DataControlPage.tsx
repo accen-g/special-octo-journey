@@ -369,21 +369,21 @@ export default function DataControlPage() {
                 <Table
                   size="small"
                   sx={{
-                    '& th': { ...COL_BORDER, bgcolor: '#fafafa' },
+                    '& th': { ...COL_BORDER },
                     '& td': { ...COL_BORDER, ...ROW_BORDER },
                     '& th:last-child, & td:last-child': { borderRight: 'none' },
                   }}
                 >
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700 }}>KRI Code</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>KRI Name</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Region</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Category</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>SLA Due</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }}>Approval</TableCell>
-                      <TableCell sx={{ fontWeight: 700 }} align="center">Actions</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>KRI Code</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>KRI Name</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>Region</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>Category</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>Status</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>SLA Due</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>Approval</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }} align="center">Actions</TableCell>
                     </TableRow>
                     <TableHeaderFilters
                       filters={[
@@ -518,21 +518,21 @@ export default function DataControlPage() {
                   size="small"
                   stickyHeader
                   sx={{
-                    '& th': { ...COL_BORDER, bgcolor: '#fafafa' },
+                    '& th': { ...COL_BORDER },
                     '& td': { ...COL_BORDER, ...ROW_BORDER },
                     '& th:last-child, & td:last-child': { borderRight: 'none' },
                   }}
                 >
                   <TableHead>
                     <TableRow>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 110 }}>KRI Code</TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 190 }}>KRI Name</TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 90 }}>Region</TableCell>
-                      <TableCell sx={{ fontWeight: 700, minWidth: 110 }}>Category</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap', minWidth: 110 }}>KRI Code</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap', minWidth: 190 }}>KRI Name</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap', minWidth: 90 }}>Region</TableCell>
+                      <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap', minWidth: 110 }}>Category</TableCell>
                       {dimensions.map((dim) => (
-                        <TableCell key={dim.dimension_id} sx={{ fontWeight: 700, minWidth: 130, textAlign: 'center' }}>
+                        <TableCell key={dim.dimension_id} sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap', minWidth: 130, textAlign: 'center' }}>
                           <Tooltip title={dim.dimension_name} arrow>
-                            <Typography variant="caption" sx={{ fontWeight: 700, display: 'block' }}>
+                            <Typography variant="caption" sx={{ fontWeight: 700, display: 'block', color: 'inherit' }}>
                               {dim.dimension_name.length > 16
                                 ? dim.dimension_name.slice(0, 15) + '…'
                                 : dim.dimension_name}
@@ -657,18 +657,18 @@ export default function DataControlPage() {
             <Table
               size="small"
               sx={{
-                '& th': { ...COL_BORDER, bgcolor: '#fafafa' },
+                '& th': { ...COL_BORDER },
                 '& td': { ...COL_BORDER, ...ROW_BORDER },
                 '& th:last-child, & td:last-child': { borderRight: 'none' },
               }}
             >
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 700 }}>Action</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>By</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Date</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Comments</TableCell>
-                  <TableCell sx={{ fontWeight: 700 }}>Status Change</TableCell>
+                  <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>Action</TableCell>
+                  <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>By</TableCell>
+                  <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>Date</TableCell>
+                  <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>Comments</TableCell>
+                  <TableCell sx={{ fontSize: '0.72rem', whiteSpace: 'nowrap' }}>Status Change</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>

@@ -1,0 +1,15 @@
+{
+  "uuid": "1ce4ac63-fefe-4c39-8051-848506d3f392",
+  "subject": "KRI-3 [April 2026] | Iter-1 | Approved",
+  "to": [
+    "dh71298@company.com",
+    "gd24043@company.com"
+  ],
+  "from": "noreply@dev.local",
+  "kri_id": 3,
+  "kri_code": "KRI-UK-003",
+  "period": "April 2026",
+  "iteration": 1,
+  "action": "Approved",
+  "sent_at": "2026-04-11T14:12:35.813263"
+}

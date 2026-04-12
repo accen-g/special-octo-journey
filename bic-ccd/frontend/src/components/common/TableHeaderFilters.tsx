@@ -4,7 +4,7 @@ import { TableRow, TableCell, TextField, Select, MenuItem, Box } from '@mui/mate
 interface FilterConfig {
   key: string;
   label: string;
-  type: 'text' | 'select';
+  type: 'text' | 'select' | 'none';
   options?: Array<{ value: string; label: string }>;
   value: string;
   onChange: (value: string) => void;
@@ -36,7 +36,7 @@ export default function TableHeaderFilters({ filters, borderStyle }: TableHeader
           }}
         >
           <Box sx={{ display: 'flex', alignItems: 'center', minHeight: 36 }}>
-            {filter.type === 'text' ? (
+            {filter.type === 'none' ? null : filter.type === 'text' ? (
               <TextField
                 type="text"
                 placeholder={`Search ${filter.label}...`}

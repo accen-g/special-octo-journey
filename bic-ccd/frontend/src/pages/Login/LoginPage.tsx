@@ -9,12 +9,12 @@ import { useAppDispatch } from '../../store';
 import { loginSuccess } from '../../store';
 
 const demoUsers = [
-  { soe_id: 'RANREDDY', label: 'Rahul Anreddy — Management' },
-  { soe_id: 'JSMITH01', label: 'John Smith — L1 Approver' },
-  { soe_id: 'ALEE02', label: 'Angela Lee — L2 Approver' },
-  { soe_id: 'BWILSON', label: 'Brian Wilson — L3 Admin' },
-  { soe_id: 'DPATEL', label: 'Deepa Patel — Data Provider' },
-  { soe_id: 'MKUMAR', label: 'Manoj Kumar — Metric Owner' },
+  { soe_id: 'SA41230', label: 'Shahzad Alam — Management' },
+  { soe_id: 'VR31849', label: 'Vivek Avireddy — L1 Approver' },
+  { soe_id: 'HK51214', label: 'Hasmukh Katechiya — L2 Approver' },
+  { soe_id: 'DH71298', label: 'Dawn Higgs — L3 Admin' },
+  { soe_id: 'GD24043', label: 'Gayatri Deshmukh — Data Provider' },
+  { soe_id: 'PT81286', label: 'Paul Thirtle — Metric Owner' },
   { soe_id: 'SYSADMIN', label: 'System Admin' },
 ];
 

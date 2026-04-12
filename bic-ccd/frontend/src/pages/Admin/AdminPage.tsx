@@ -10,6 +10,10 @@ import { PersonAdd, Edit, Security, Tune, Delete, Rule, Storage, PlayArrow, Cach
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { userApi, escalationApi, lookupApi, kriApi, assignmentRuleApi, adminApi } from '../../api/client';
 import { roleLabel } from '../../utils/helpers';
+import StatusChip from '../../components/common/StatusChip';
+
+// Canonical table header sx — matches KRI Config and Approvals pages
+const TH_SX = { fontWeight: 700, fontSize: '0.72rem', whiteSpace: 'nowrap' };
 
 const ROLE_CODES = Object.keys(roleLabel);
 
@@ -348,13 +352,13 @@ export default function AdminPage() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>SOE ID</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Full Name</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Email</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Department</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="center">Actions</TableCell>
+                        <TableCell sx={TH_SX}>SOE ID</TableCell>
+                        <TableCell sx={TH_SX}>Full Name</TableCell>
+                        <TableCell sx={TH_SX}>Email</TableCell>
+                        <TableCell sx={TH_SX}>Department</TableCell>
+                        <TableCell sx={TH_SX}>Role</TableCell>
+                        <TableCell sx={TH_SX}>Status</TableCell>
+                        <TableCell sx={{ ...TH_SX, textAlign: 'center' }}>Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -377,15 +381,7 @@ export default function AdminPage() {
                             )}
                           </TableCell>
                           <TableCell>
-                            <Chip
-                              label={u.is_active ? 'Active' : 'Inactive'}
-                              size="small"
-                              sx={{
-                                bgcolor: u.is_active ? '#e8f8f0' : '#f0f0f0',
-                                color: u.is_active ? '#1e8449' : '#7f8c8d',
-                                fontWeight: 600, fontSize: '0.72rem',
-                              }}
-                            />
+                            <StatusChip status={u.is_active ? 'Active' : 'Inactive'} />
                           </TableCell>
                           <TableCell align="center">
                             <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
@@ -436,12 +432,12 @@ export default function AdminPage() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>Type</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Threshold (hrs)</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Reminder (hrs)</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Max Reminders</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Escalate To</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="center">Actions</TableCell>
+                        <TableCell sx={TH_SX}>Type</TableCell>
+                        <TableCell sx={TH_SX}>Threshold (hrs)</TableCell>
+                        <TableCell sx={TH_SX}>Reminder (hrs)</TableCell>
+                        <TableCell sx={TH_SX}>Max Reminders</TableCell>
+                        <TableCell sx={TH_SX}>Escalate To</TableCell>
+                        <TableCell sx={{ ...TH_SX, textAlign: 'center' }}>Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -531,9 +527,9 @@ export default function AdminPage() {
                     <TableContainer component={Paper} variant="outlined" sx={{ mt: 1, maxWidth: 480 }}>
                       <Table size="small">
                         <TableHead>
-                          <TableRow sx={{ bgcolor: '#f5f7fa' }}>
-                            <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>Key</TableCell>
-                            <TableCell sx={{ fontWeight: 700, fontSize: '0.75rem' }}>TTL remaining (s)</TableCell>
+                          <TableRow>
+                            <TableCell sx={TH_SX}>Key</TableCell>
+                            <TableCell sx={TH_SX}>TTL remaining (s)</TableCell>
                           </TableRow>
                         </TableHead>
                         <TableBody>
@@ -623,9 +619,9 @@ export default function AdminPage() {
                   <TableContainer component={Paper} variant="outlined" sx={{ mt: 0.5, maxHeight: 340 }}>
                     <Table size="small" stickyHeader>
                       <TableHead>
-                        <TableRow sx={{ bgcolor: '#f5f7fa' }}>
+                        <TableRow>
                           {sqlResult.columns.map((c) => (
-                            <TableCell key={c} sx={{ fontWeight: 700, fontSize: '0.72rem', fontFamily: 'monospace', py: 0.5 }}>{c}</TableCell>
+                            <TableCell key={c} sx={{ ...TH_SX, fontFamily: 'monospace', py: 0.5 }}>{c}</TableCell>
                           ))}
                         </TableRow>
                       </TableHead>
@@ -664,12 +660,12 @@ export default function AdminPage() {
                   <Table size="small">
                     <TableHead>
                       <TableRow>
-                        <TableCell sx={{ fontWeight: 700 }}>Role</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Approver</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Scope</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Priority</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }}>Status</TableCell>
-                        <TableCell sx={{ fontWeight: 700 }} align="center">Actions</TableCell>
+                        <TableCell sx={TH_SX}>Role</TableCell>
+                        <TableCell sx={TH_SX}>Approver</TableCell>
+                        <TableCell sx={TH_SX}>Scope</TableCell>
+                        <TableCell sx={TH_SX}>Priority</TableCell>
+                        <TableCell sx={TH_SX}>Status</TableCell>
+                        <TableCell sx={{ ...TH_SX, textAlign: 'center' }}>Actions</TableCell>
                       </TableRow>
                     </TableHead>
                     <TableBody>
@@ -695,9 +691,7 @@ export default function AdminPage() {
                             </TableCell>
                             <TableCell sx={{ fontWeight: 700, fontSize: '0.82rem' }}>{r.priority}</TableCell>
                             <TableCell>
-                              <Chip label={r.is_active ? 'Active' : 'Inactive'} size="small"
-                                sx={{ bgcolor: r.is_active ? '#e8f8f0' : '#f0f0f0',
-                                  color: r.is_active ? '#1e8449' : '#7f8c8d', fontWeight: 600, fontSize: '0.72rem' }} />
+                              <StatusChip status={r.is_active ? 'Active' : 'Inactive'} />
                             </TableCell>
                             <TableCell align="center">
                               <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   Box, Card, CardContent, Typography, Tabs, Tab, Button, Chip,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow, Paper,
@@ -15,6 +15,7 @@ import { useNavigate } from 'react-router-dom';
 import { makerCheckerApi, userApi, commentApi, controlApi, lookupApi } from '../../api/client';
 import { useAppSelector } from '../../store';
 import { hasRole, isL3Admin, getAvailablePeriods } from '../../utils/helpers';
+import TableHeaderFilters from '../../components/common/TableHeaderFilters';
 
 // ─── Status chip helper ───────────────────────────────────────
 const statusChip = (status: string) => {
@@ -207,6 +208,24 @@ export default function ApprovalsPage() {
   });
   const [commentText, setCommentText] = useState('');
 
+  // Active queue inline column filters
+  const [activeColFilters, setActiveColFilters] = useState({
+    kri: '',
+    dimension: '',
+    region: '',
+    status: '',
+    submittedBy: '',
+  });
+
+  // History inline column filters
+  const [historyColFilters, setHistoryColFilters] = useState({
+    kri: '',
+    dimension: '',
+    submittedBy: '',
+    action: '',
+    finalStatus: '',
+  });
+
   // History filters
   const [historyLevel, setHistoryLevel] = useState<'L1' | 'L2' | 'L3'>(() => {
     const roles = user?.roles || [];
@@ -289,6 +308,35 @@ export default function ApprovalsPage() {
   const activeTotal = pendingData?.total || 0;
   const historyItems = historyData?.items || [];
   const historyTotal = historyData?.total || 0;
+
+  // Apply client-side column filters on top of API results
+  const filteredActiveItems = useMemo(() => {
+    return activeItems.filter((item: any) => {
+      if (activeColFilters.kri) {
+        const s = activeColFilters.kri.toLowerCase();
+        if (!item.kri_name?.toLowerCase().includes(s) && !item.kri_code?.toLowerCase().includes(s)) return false;
+      }
+      if (activeColFilters.dimension && !item.dimension_name?.toLowerCase().includes(activeColFilters.dimension.toLowerCase())) return false;
+      if (activeColFilters.region && item.region_name !== activeColFilters.region) return false;
+      if (activeColFilters.status && item.final_status !== activeColFilters.status) return false;
+      if (activeColFilters.submittedBy && !item.submitted_by_name?.toLowerCase().includes(activeColFilters.submittedBy.toLowerCase())) return false;
+      return true;
+    });
+  }, [activeItems, activeColFilters]);
+
+  const filteredHistoryItems = useMemo(() => {
+    return historyItems.filter((item: any) => {
+      if (historyColFilters.kri) {
+        const s = historyColFilters.kri.toLowerCase();
+        if (!item.kri_name?.toLowerCase().includes(s) && !item.kri_code?.toLowerCase().includes(s)) return false;
+      }
+      if (historyColFilters.dimension && !item.dimension_name?.toLowerCase().includes(historyColFilters.dimension.toLowerCase())) return false;
+      if (historyColFilters.submittedBy && !item.submitted_by_name?.toLowerCase().includes(historyColFilters.submittedBy.toLowerCase())) return false;
+      if (historyColFilters.action && item.action !== historyColFilters.action) return false;
+      if (historyColFilters.finalStatus && item.final_status !== historyColFilters.finalStatus) return false;
+      return true;
+    });
+  }, [historyItems, historyColFilters]);
   const nextApprovers = level === 'L1' ? l2Users : level === 'L2' ? l3Users : [];
 
   const canApprove = hasRole(user?.roles || [], ['L1_APPROVER', 'L2_APPROVER', 'L3_ADMIN', 'SYSTEM_ADMIN']);
@@ -443,9 +491,38 @@ export default function ApprovalsPage() {
                         <TableCell sx={{ fontWeight: 700 }}>Submitted By</TableCell>
                         <TableCell sx={{ fontWeight: 700, minWidth: 130 }} align="center">Actions</TableCell>
                       </TableRow>
+                      <TableHeaderFilters
+                        filters={[
+                          { key: '_expand', label: '', type: 'none', value: '', onChange: () => {} },
+                          { key: 'kri', label: 'KRI', type: 'text', value: activeColFilters.kri,
+                            onChange: (v) => setActiveColFilters((f) => ({ ...f, kri: v })) },
+                          { key: 'dimension', label: 'Dimension', type: 'text', value: activeColFilters.dimension,
+                            onChange: (v) => setActiveColFilters((f) => ({ ...f, dimension: v })) },
+                          { key: 'region', label: 'Legal Entity', type: 'select',
+                            options: (regionsData as any[]).map((r: any) => ({ value: r.region_name, label: r.region_name })),
+                            value: activeColFilters.region,
+                            onChange: (v) => setActiveColFilters((f) => ({ ...f, region: v })) },
+                          { key: '_month', label: '', type: 'none', value: '', onChange: () => {} },
+                          { key: 'status', label: 'Status', type: 'select',
+                            options: [
+                              { value: 'L1_PENDING', label: 'L1 Pending' },
+                              { value: 'L2_PENDING', label: 'L2 Pending' },
+                              { value: 'L3_PENDING', label: 'L3 Pending' },
+                              { value: 'APPROVED', label: 'Approved' },
+                              { value: 'REJECTED', label: 'Rejected' },
+                              { value: 'REWORK', label: 'Rework' },
+                            ],
+                            value: activeColFilters.status,
+                            onChange: (v) => setActiveColFilters((f) => ({ ...f, status: v })) },
+                          { key: '_submitted', label: '', type: 'none', value: '', onChange: () => {} },
+                          { key: 'submittedBy', label: 'Submitted By', type: 'text', value: activeColFilters.submittedBy,
+                            onChange: (v) => setActiveColFilters((f) => ({ ...f, submittedBy: v })) },
+                          { key: '_actions', label: '', type: 'none', value: '', onChange: () => {} },
+                        ]}
+                      />
                     </TableHead>
                     <TableBody>
-                      {activeItems.map((item: any) => (
+                      {filteredActiveItems.map((item: any) => (
                         <React.Fragment key={item.submission_id}>
                           <TableRow hover sx={{ '& > *': { borderBottom: expandedRow === item.submission_id ? 'unset' : undefined } }}>
                             <TableCell>
@@ -686,6 +763,7 @@ export default function ApprovalsPage() {
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: 700 }}>KRI</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>Control / Dimension</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Period</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Submitted By</TableCell>
                         <TableCell sx={{ fontWeight: 700 }}>Submitted</TableCell>
@@ -701,9 +779,48 @@ export default function ApprovalsPage() {
                           </>
                         )}
                       </TableRow>
+                      <TableHeaderFilters
+                        filters={[
+                          { key: 'kri', label: 'KRI', type: 'text', value: historyColFilters.kri,
+                            onChange: (v) => setHistoryColFilters((f) => ({ ...f, kri: v })) },
+                          { key: 'dimension', label: 'Control / Dimension', type: 'text', value: historyColFilters.dimension,
+                            onChange: (v) => setHistoryColFilters((f) => ({ ...f, dimension: v })) },
+                          { key: '_period', label: '', type: 'none', value: '', onChange: () => {} },
+                          { key: 'submittedBy', label: 'Submitted By', type: 'text', value: historyColFilters.submittedBy,
+                            onChange: (v) => setHistoryColFilters((f) => ({ ...f, submittedBy: v })) },
+                          { key: '_submitted', label: '', type: 'none', value: '', onChange: () => {} },
+                          { key: 'action', label: 'Action', type: 'select',
+                            options: [
+                              { value: 'APPROVED', label: 'Approved' },
+                              { value: 'REJECTED', label: 'Rejected' },
+                              { value: 'REWORK', label: 'Rework' },
+                              { value: 'ESCALATE', label: 'Escalate' },
+                            ],
+                            value: historyColFilters.action,
+                            onChange: (v) => setHistoryColFilters((f) => ({ ...f, action: v })) },
+                          { key: '_actionedOn', label: '', type: 'none', value: '', onChange: () => {} },
+                          { key: 'finalStatus', label: 'Final Status', type: 'select',
+                            options: [
+                              { value: 'APPROVED', label: 'Approved' },
+                              { value: 'REJECTED', label: 'Rejected' },
+                              { value: 'REWORK', label: 'Rework' },
+                              { value: 'L1_PENDING', label: 'L1 Pending' },
+                              { value: 'L2_PENDING', label: 'L2 Pending' },
+                              { value: 'L3_PENDING', label: 'L3 Pending' },
+                            ],
+                            value: historyColFilters.finalStatus,
+                            onChange: (v) => setHistoryColFilters((f) => ({ ...f, finalStatus: v })) },
+                          { key: '_comments', label: '', type: 'none', value: '', onChange: () => {} },
+                          ...(isAdmin ? [
+                            { key: '_l1', label: '', type: 'none' as const, value: '', onChange: () => {} },
+                            { key: '_l2', label: '', type: 'none' as const, value: '', onChange: () => {} },
+                            { key: '_l3', label: '', type: 'none' as const, value: '', onChange: () => {} },
+                          ] : []),
+                        ]}
+                      />
                     </TableHead>
                     <TableBody>
-                      {historyItems.map((item: any) => (
+                      {filteredHistoryItems.map((item: any) => (
                         <TableRow key={item.submission_id} hover>
                           <TableCell>
                             <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.82rem' }}>
@@ -714,6 +831,9 @@ export default function ApprovalsPage() {
                                 {item.kri_code}
                               </Typography>
                             )}
+                          </TableCell>
+                          <TableCell sx={{ fontSize: '0.82rem' }}>
+                            {item.dimension_name || '—'}
                           </TableCell>
                           <TableCell sx={{ fontSize: '0.82rem', whiteSpace: 'nowrap' }}>
                             {item.period_year && item.period_month
@@ -828,7 +948,7 @@ export default function ApprovalsPage() {
             placeholder="Required: describe the reason for this action..."
           />
           {actionDialog.action === 'APPROVED' && nextApprovers.length > 0 && (
-            <FormControl fullWidth>
+            <FormControl fullWidth sx={{ mt: 1 }}>
               <InputLabel>Forward to next approver</InputLabel>
               <Select
                 value={nextApproverId || ''}
@@ -842,6 +962,31 @@ export default function ApprovalsPage() {
               </Select>
             </FormControl>
           )}
+          {actionDialog.action === 'ESCALATE' && nextApprovers.length > 0 && (
+            <FormControl fullWidth required sx={{ mt: 1 }}>
+              <InputLabel error={!nextApproverId}>Escalate to (required) *</InputLabel>
+              <Select
+                value={nextApproverId || ''}
+                label="Escalate to (required) *"
+                onChange={(e) => setNextApproverId(Number(e.target.value))}
+                error={!nextApproverId}
+              >
+                {nextApprovers.map((u: any) => (
+                  <MenuItem key={u.user_id} value={u.user_id}>{u.full_name} ({u.soe_id})</MenuItem>
+                ))}
+              </Select>
+              {!nextApproverId && (
+                <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
+                  Select the approver to escalate this submission to
+                </Typography>
+              )}
+            </FormControl>
+          )}
+          {actionDialog.action === 'ESCALATE' && nextApprovers.length === 0 && (
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              No eligible approvers found for escalation. Please assign an approver in system settings.
+            </Alert>
+          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => {
@@ -853,9 +998,14 @@ export default function ApprovalsPage() {
             color={
               actionDialog.action === 'APPROVED' ? 'success'
               : actionDialog.action === 'REJECTED' ? 'error'
+              : actionDialog.action === 'ESCALATE' ? 'info'
               : 'warning'
             }
-            disabled={actionMutation.isPending || !comments.trim()}
+            disabled={
+              actionMutation.isPending ||
+              !comments.trim() ||
+              (actionDialog.action === 'ESCALATE' && nextApprovers.length > 0 && !nextApproverId)
+            }
             onClick={() => {
               if (!actionDialog.submissionId) return;
               if (!comments.trim()) { setCommentsTouched(true); return; }

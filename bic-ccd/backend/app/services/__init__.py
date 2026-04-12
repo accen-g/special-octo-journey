@@ -320,10 +320,11 @@ class MakerCheckerService:
 
         Priority order:
           1. current pending-with user at the NEXT level (already assigned)
-          2. next_approver_id_hint from the request (explicit override)
+          2. next_approver_id_hint from the request (explicit override — frontend sends this)
           3. assignment rules lookup for the next level role
+          4. any active user with the required role (last-resort DB scan)
 
-        Raises HTTP 422 if no target can be resolved (graceful edge case).
+        Raises HTTP 422 only when no target can be resolved through any mechanism.
         """
         # Determine which level we are escalating TO
         next_level_map = {"L1": "L2", "L2": "L3"}
@@ -340,7 +341,7 @@ class MakerCheckerService:
             logger.debug("Escalation target resolved from existing FK: user #%s", existing)
             return existing
 
-        # 2. Explicit hint from caller (frontend may pass next_approver_id)
+        # 2. Explicit hint from caller (frontend sends next_approver_id for ESCALATE)
         if next_approver_id_hint:
             logger.debug("Escalation target resolved from request hint: user #%s", next_approver_id_hint)
             return next_approver_id_hint
@@ -353,11 +354,30 @@ class MakerCheckerService:
             logger.debug("Escalation target resolved from assignment rules: user #%s", resolved)
             return resolved
 
-        # Edge case: no approver found — fail gracefully
+        # 4. Last-resort: find any active user with the required role
+        from app.models import UserRoleMapping as _UserRoleMapping
+        fallback_user = (
+            self.db.query(AppUser)
+            .join(_UserRoleMapping, _UserRoleMapping.user_id == AppUser.user_id)
+            .filter(
+                _UserRoleMapping.role_code == next_role,
+                _UserRoleMapping.is_active == True,
+                AppUser.is_active == True,
+            )
+            .first()
+        )
+        if fallback_user:
+            logger.warning(
+                "Escalation target resolved by role scan (no assignment rule): "
+                "user #%s for role %s on submission #%s",
+                fallback_user.user_id, next_role, sub.submission_id,
+            )
+            return fallback_user.user_id
+
         raise HTTPException(
             422,
-            f"No {next_level} approver found for escalation. "
-            f"Please assign an {next_role} approver or specify next_approver_id."
+            f"No active {next_role} user found for escalation from {current_level}. "
+            "Please ensure at least one user has this role assigned."
         )
 
     def process_action(self, submission_id: int, action_req: MakerCheckerActionRequest,

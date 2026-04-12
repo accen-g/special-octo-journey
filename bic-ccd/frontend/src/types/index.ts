@@ -40,3 +40,90 @@ export interface Notification { notification_id: number; title: string; message:
 export interface PaginatedResponse<T> { items: T[]; total: number; page: number; page_size: number; }
 export interface EscalationConfig { config_id: number; escalation_type: string; threshold_hours: number; reminder_hours: number; escalate_to_role: string; }
 export interface Comment { comment_id: number; comment_text: string; comment_type: string; posted_dt: string; poster_name?: string; }
+
+// ─── KRI Onboarding (Bluesheet) ─────────────────────────────
+export interface KriConfigListItem {
+  kri_id: number; kri_code?: string; kri_name: string; description?: string;
+  region_name?: string; category_name?: string; risk_level: string; frequency?: string;
+  data_provider_name?: string; metric_owner_name?: string; remediation_owner_name?: string;
+  version?: string; approval_status: string; submitted_by_name?: string; submitted_dt?: string;
+  bluesheet_id?: number;
+}
+
+export interface KriBluesheetCreate {
+  kri_code: string; kri_name: string; description?: string; legacy_kri_id?: string;
+  region_id: number; category_id: number; risk_level: string; threshold?: string;
+  circuit_breaker?: string; frequency: string; dq_objectives?: string; control_ids?: string;
+  primary_senior_manager?: string; metric_owner_name?: string; remediation_owner_name?: string;
+  bi_metrics_lead?: string; data_provider_name?: string;
+  sc_uk: boolean; sc_finance: boolean; sc_risk: boolean; sc_liquidity: boolean;
+  sc_capital: boolean; sc_risk_reports: boolean; sc_markets: boolean;
+  why_selected?: string; threshold_rationale?: string; limitations?: string; kri_calculation?: string;
+  runbook_version?: string; runbook_review_date?: string; runbook_notes?: string;
+}
+
+export interface KriBluesheetDetail extends KriBluesheetCreate {
+  bluesheet_id: number; kri_id: number; kri_code?: string; kri_name: string;
+  region_name?: string; category_name?: string;
+  runbook_s3_path?: string; runbook_filename?: string;
+  approval_status: string; submitted_by?: number; submitted_dt?: string; submitter_name?: string;
+  created_dt?: string; approval_log?: KriApprovalLogEntry[];
+}
+
+export interface KriApprovalLogEntry {
+  log_id: number; kri_id: number; action: string;
+  performed_by: number; performer_name?: string; performed_dt: string;
+  comments?: string; previous_status?: string; new_status?: string;
+}
+
+// ─── Audit Evidence ──────────────────────────────────────────
+export interface AuditEvidenceItem {
+  evidence_id: number;
+  kri_id: number;
+  kri_code?: string;
+  kri_name?: string;
+  control_id?: string;
+  region_code?: string;
+  period_year: number;
+  period_month: number;
+  iteration?: number;
+  evidence_type: 'manual' | 'auto' | 'email';
+  action?: string;
+  sender?: string;
+  receiver?: string;
+  file_name: string;
+  s3_object_path: string;
+  uploaded_by_name?: string;
+  notes?: string;
+  is_unmapped: boolean;
+  email_uuid?: string;
+  created_dt?: string;
+}
+
+export interface AuditEvidenceKriRow {
+  kri_id: number;
+  kri_code?: string;
+  kri_name: string;
+  region_name?: string;
+  region_code?: string;
+  control_id?: string;
+  data_provider_name?: string;
+  status: string;
+  evidence_count: number;
+  period_year: number;
+  period_month: number;
+}
+
+export interface AuditSummary {
+  summary_id: number;
+  kri_id: number;
+  period_year: number;
+  period_month: number;
+  s3_path: string;
+  generated_dt?: string;
+  l3_approver_name?: string;
+  final_status: string;
+  total_iterations: number;
+  total_evidences: number;
+  total_emails: number;
+}

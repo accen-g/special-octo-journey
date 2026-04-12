@@ -12,6 +12,9 @@ import EvidencePage from './pages/Evidence/EvidencePage';
 import VariancePage from './pages/Variance/VariancePage';
 import AdminPage from './pages/Admin/AdminPage';
 import KriWizardPage from './pages/KriWizard/KriWizardPage';
+import KriConfigPage from './pages/KriConfig/KriConfigPage';
+import KriOnboardingWizard from './pages/KriConfig/KriOnboardingWizard';
+import KriDetailPage from './pages/KriConfig/KriDetailPage';
 import ScorecardPage from './pages/Scorecard/ScorecardPage';
 import EscalationMetricsPage from './pages/EscalationMetrics/EscalationMetricsPage';
 
@@ -86,6 +89,22 @@ export default function App() {
           <Route path="kri-wizard" element={
             <RequireRole roles={getRolesForPage('kri-wizard')}>
               <KriWizardPage />
+            </RequireRole>
+          } />
+
+          <Route path="kri-config" element={
+            <RequireRole roles={getRolesForPage('kri-config')}>
+              <KriConfigPage />
+            </RequireRole>
+          } />
+          <Route path="kri-config/new" element={
+            <RequireRole roles={getRolesForPage('kri-config')}>
+              <KriOnboardingWizard />
+            </RequireRole>
+          } />
+          <Route path="kri-config/:kriId" element={
+            <RequireRole roles={getRolesForPage('kri-config')}>
+              <KriDetailPage />
             </RequireRole>
           } />
         </Route>

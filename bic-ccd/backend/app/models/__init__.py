@@ -752,3 +752,156 @@ class SavedView(AuditMixin, Base):
     view_type: Mapped[str] = mapped_column("VIEW_TYPE", String(30), nullable=False)
     filters_json: Mapped[Optional[str]] = mapped_column("FILTERS_JSON", Text)
     is_default: Mapped[bool] = mapped_column("IS_DEFAULT", Boolean, default=False)
+
+
+# ════════════════════════════════════════════════════════════
+# KRI ONBOARDING TABLES (Bluesheet workflow)
+# ════════════════════════════════════════════════════════════
+
+# ─── BIC_KRI_BLUESHEET ──────────────────────────────────────
+class KriBluesheet(AuditMixin, Base):
+    """Extended KRI metadata matching the Bluesheet form.
+    One row per KRI — stores roles, scorecard coverage, rationale, and runbook.
+    """
+    __tablename__ = "BIC_KRI_BLUESHEET"
+
+    bluesheet_id: Mapped[int] = mapped_column("BLUESHEET_ID", Integer, Identity(start=1), primary_key=True)
+    kri_id: Mapped[int] = mapped_column("KRI_ID", Integer, ForeignKey("CCB_KRI_CONFIG.KRI_ID"), nullable=False, unique=True)
+
+    # ── Classification extras ──────────────────────────────
+    legacy_kri_id: Mapped[Optional[str]] = mapped_column("LEGACY_KRI_ID", String(50))
+    threshold: Mapped[Optional[str]] = mapped_column("THRESHOLD", String(100))
+    circuit_breaker: Mapped[Optional[str]] = mapped_column("CIRCUIT_BREAKER", String(100))
+    control_ids: Mapped[Optional[str]] = mapped_column("CONTROL_IDS", String(500))
+    dq_objectives: Mapped[Optional[str]] = mapped_column("DQ_OBJECTIVES", Text)
+
+    # ── Roles & Responsibilities ───────────────────────────
+    primary_senior_manager: Mapped[Optional[str]] = mapped_column("PRIMARY_SENIOR_MANAGER", String(200))
+    metric_owner_name: Mapped[Optional[str]] = mapped_column("METRIC_OWNER_NAME", String(200))
+    remediation_owner_name: Mapped[Optional[str]] = mapped_column("REMEDIATION_OWNER_NAME", String(200))
+    bi_metrics_lead: Mapped[Optional[str]] = mapped_column("BI_METRICS_LEAD", String(200))
+    data_provider_name: Mapped[Optional[str]] = mapped_column("DATA_PROVIDER_NAME", String(200))
+
+    # ── Scorecard Coverage ─────────────────────────────────
+    sc_uk: Mapped[bool] = mapped_column("SC_UK", Boolean, default=False)
+    sc_finance: Mapped[bool] = mapped_column("SC_FINANCE", Boolean, default=False)
+    sc_risk: Mapped[bool] = mapped_column("SC_RISK", Boolean, default=False)
+    sc_liquidity: Mapped[bool] = mapped_column("SC_LIQUIDITY", Boolean, default=False)
+    sc_capital: Mapped[bool] = mapped_column("SC_CAPITAL", Boolean, default=False)
+    sc_risk_reports: Mapped[bool] = mapped_column("SC_RISK_REPORTS", Boolean, default=False)
+    sc_markets: Mapped[bool] = mapped_column("SC_MARKETS", Boolean, default=False)
+
+    # ── Rationale & Scope ──────────────────────────────────
+    why_selected: Mapped[Optional[str]] = mapped_column("WHY_SELECTED", Text)
+    threshold_rationale: Mapped[Optional[str]] = mapped_column("THRESHOLD_RATIONALE", Text)
+    limitations: Mapped[Optional[str]] = mapped_column("LIMITATIONS", Text)
+    kri_calculation: Mapped[Optional[str]] = mapped_column("KRI_CALCULATION", Text)
+
+    # ── Runbook ────────────────────────────────────────────
+    runbook_s3_path: Mapped[Optional[str]] = mapped_column("RUNBOOK_S3_PATH", String(500))
+    runbook_filename: Mapped[Optional[str]] = mapped_column("RUNBOOK_FILENAME", String(300))
+    runbook_version: Mapped[Optional[str]] = mapped_column("RUNBOOK_VERSION", String(20))
+    runbook_review_date: Mapped[Optional[date]] = mapped_column("RUNBOOK_REVIEW_DATE", Date)
+    runbook_notes: Mapped[Optional[str]] = mapped_column("RUNBOOK_NOTES", Text)
+
+    # ── Approval ───────────────────────────────────────────
+    approval_status: Mapped[str] = mapped_column("APPROVAL_STATUS", String(20), default="PENDING_APPROVAL", nullable=False)
+    submitted_by: Mapped[Optional[int]] = mapped_column("SUBMITTED_BY", Integer, ForeignKey("APP_USER.USER_ID"))
+    submitted_dt: Mapped[Optional[datetime]] = mapped_column("SUBMITTED_DT", DateTime)
+
+    kri: Mapped["KriMaster"] = relationship(foreign_keys=[kri_id])
+    submitter: Mapped[Optional["AppUser"]] = relationship(foreign_keys=[submitted_by])
+
+
+# ─── BIC_KRI_APPROVAL_LOG ───────────────────────────────────
+class KriApprovalLog(Base):
+    """Immutable audit log for KRI-level onboarding approval actions."""
+    __tablename__ = "BIC_KRI_APPROVAL_LOG"
+
+    log_id: Mapped[int] = mapped_column("LOG_ID", Integer, Identity(start=1), primary_key=True)
+    kri_id: Mapped[int] = mapped_column("KRI_ID", Integer, ForeignKey("CCB_KRI_CONFIG.KRI_ID"), nullable=False)
+    action: Mapped[str] = mapped_column("ACTION", String(20), nullable=False)   # SUBMITTED | APPROVED | REJECTED | REWORK
+    performed_by: Mapped[int] = mapped_column("PERFORMED_BY", Integer, ForeignKey("APP_USER.USER_ID"), nullable=False)
+    performed_dt: Mapped[datetime] = mapped_column("PERFORMED_DT", DateTime, default=datetime.utcnow, nullable=False)
+    comments: Mapped[Optional[str]] = mapped_column("COMMENTS", Text)
+    previous_status: Mapped[Optional[str]] = mapped_column("PREVIOUS_STATUS", String(20))
+    new_status: Mapped[Optional[str]] = mapped_column("NEW_STATUS", String(20))
+
+    kri: Mapped["KriMaster"] = relationship(foreign_keys=[kri_id])
+    performer: Mapped["AppUser"] = relationship(foreign_keys=[performed_by])
+
+
+# ════════════════════════════════════════════════════════════
+# AUDIT EVIDENCE TABLES (Unified Audit Evidence System)
+# ════════════════════════════════════════════════════════════
+
+# ─── BIC_KRI_EVIDENCE_METADATA ──────────────────────────────
+class KriEvidenceMetadata(AuditMixin, Base):
+    """Stores ONLY metadata — no file/email content. S3 is source of truth."""
+    __tablename__ = "BIC_KRI_EVIDENCE_METADATA"
+
+    evidence_id: Mapped[int] = mapped_column("EVIDENCE_ID", Integer, Identity(start=1), primary_key=True)
+    kri_id: Mapped[int] = mapped_column("KRI_ID", Integer, ForeignKey("CCB_KRI_CONFIG.KRI_ID"), nullable=False)
+    control_id: Mapped[Optional[str]] = mapped_column("CONTROL_ID_STR", String(100))   # e.g. "CCB-DC-0041"
+    region_code: Mapped[Optional[str]] = mapped_column("REGION_CODE", String(20))       # e.g. "UK"
+    period_year: Mapped[int] = mapped_column("PERIOD_YEAR", Integer, nullable=False)
+    period_month: Mapped[int] = mapped_column("PERIOD_MONTH", Integer, nullable=False)
+    iteration: Mapped[Optional[int]] = mapped_column("ITERATION", Integer)               # for email evidence
+    evidence_type: Mapped[str] = mapped_column("EVIDENCE_TYPE", String(20), nullable=False)  # manual | auto | email
+    action: Mapped[Optional[str]] = mapped_column("ACTION", String(50))                  # SUBMISSION | REWORK | ...
+    sender: Mapped[Optional[str]] = mapped_column("SENDER", String(500))
+    receiver: Mapped[Optional[str]] = mapped_column("RECEIVER", String(500))
+    file_name: Mapped[str] = mapped_column("FILE_NAME", String(500), nullable=False)
+    s3_object_path: Mapped[str] = mapped_column("S3_OBJECT_PATH", String(1000), nullable=False)
+    uploaded_by: Mapped[Optional[int]] = mapped_column("UPLOADED_BY", Integer, ForeignKey("APP_USER.USER_ID"))
+    notes: Mapped[Optional[str]] = mapped_column("NOTES", Text)
+    is_unmapped: Mapped[bool] = mapped_column("IS_UNMAPPED", Boolean, default=False)
+    email_uuid: Mapped[Optional[str]] = mapped_column("EMAIL_UUID", String(100))
+
+    kri: Mapped["KriMaster"] = relationship(foreign_keys=[kri_id])
+    uploader: Mapped[Optional["AppUser"]] = relationship(foreign_keys=[uploaded_by])
+
+    __table_args__ = (
+        Index("idx_bic_evmeta_kri_period", "KRI_ID", "PERIOD_YEAR", "PERIOD_MONTH"),
+    )
+
+
+# ─── BIC_KRI_EMAIL_ITERATION ────────────────────────────────
+class KriEmailIteration(Base):
+    """Tracks current iteration count per KRI per reporting period."""
+    __tablename__ = "BIC_KRI_EMAIL_ITERATION"
+
+    iter_id: Mapped[int] = mapped_column("ITER_ID", Integer, Identity(start=1), primary_key=True)
+    kri_id: Mapped[int] = mapped_column("KRI_ID", Integer, ForeignKey("CCB_KRI_CONFIG.KRI_ID"), nullable=False)
+    period_year: Mapped[int] = mapped_column("PERIOD_YEAR", Integer, nullable=False)
+    period_month: Mapped[int] = mapped_column("PERIOD_MONTH", Integer, nullable=False)
+    current_iter: Mapped[int] = mapped_column("CURRENT_ITER", Integer, default=1)
+    last_updated: Mapped[datetime] = mapped_column("LAST_UPDATED", DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    kri: Mapped["KriMaster"] = relationship(foreign_keys=[kri_id])
+
+    __table_args__ = (
+        UniqueConstraint("KRI_ID", "PERIOD_YEAR", "PERIOD_MONTH", name="uq_bic_kri_iter_period"),
+    )
+
+
+# ─── BIC_KRI_AUDIT_SUMMARY ──────────────────────────────────
+class KriAuditSummary(Base):
+    """Tracks generated audit summaries."""
+    __tablename__ = "BIC_KRI_AUDIT_SUMMARY"
+
+    summary_id: Mapped[int] = mapped_column("SUMMARY_ID", Integer, Identity(start=1), primary_key=True)
+    kri_id: Mapped[int] = mapped_column("KRI_ID", Integer, ForeignKey("CCB_KRI_CONFIG.KRI_ID"), nullable=False)
+    period_year: Mapped[int] = mapped_column("PERIOD_YEAR", Integer, nullable=False)
+    period_month: Mapped[int] = mapped_column("PERIOD_MONTH", Integer, nullable=False)
+    s3_path: Mapped[str] = mapped_column("S3_PATH", String(1000), nullable=False)
+    generated_dt: Mapped[datetime] = mapped_column("GENERATED_DT", DateTime, default=datetime.utcnow, nullable=False)
+    generated_by: Mapped[Optional[int]] = mapped_column("GENERATED_BY", Integer, ForeignKey("APP_USER.USER_ID"))
+    l3_approver_name: Mapped[Optional[str]] = mapped_column("L3_APPROVER_NAME", String(200))
+    final_status: Mapped[str] = mapped_column("FINAL_STATUS", String(30), default="APPROVED")
+    total_iterations: Mapped[int] = mapped_column("TOTAL_ITERATIONS", Integer, default=0)
+    total_evidences: Mapped[int] = mapped_column("TOTAL_EVIDENCES", Integer, default=0)
+    total_emails: Mapped[int] = mapped_column("TOTAL_EMAILS", Integer, default=0)
+
+    kri: Mapped["KriMaster"] = relationship(foreign_keys=[kri_id])
+    generator: Mapped[Optional["AppUser"]] = relationship(foreign_keys=[generated_by])

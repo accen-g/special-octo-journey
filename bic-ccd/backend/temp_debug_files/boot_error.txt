@@ -1,0 +1,63 @@
+Traceback (most recent call last):
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1938, in _exec_single_context
+    self.dialect.do_executemany(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\dialects\oracle\cx_oracle.py", line 1431, in do_executemany
+    cursor.executemany(statement, parameters)
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\oracledb\cursor.py", line 809, in executemany
+    self._impl.executemany(
+  File "src\\oracledb\\impl/thin/cursor.pyx", line 211, in oracledb.thin_impl.ThinCursorImpl.executemany
+  File "src\\oracledb\\impl/thin/protocol.pyx", line 425, in oracledb.thin_impl.Protocol._process_single_message
+  File "src\\oracledb\\impl/thin/protocol.pyx", line 426, in oracledb.thin_impl.Protocol._process_single_message
+  File "src\\oracledb\\impl/thin/protocol.pyx", line 419, in oracledb.thin_impl.Protocol._process_message
+oracledb.exceptions.IntegrityError: ORA-02291: integrity constraint (BIC_CCD.SYS_C0026178) violated - parent key not found
+Help: https://docs.oracle.com/error-help/db/ora-02291/
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "<string>", line 4, in <module>
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\app\main.py", line 150, in seed_database
+    db.flush()
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\orm\session.py", line 4312, in flush
+    self._flush(objects)
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\orm\session.py", line 4447, in _flush
+    with util.safe_reraise():
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\util\langhelpers.py", line 146, in __exit__
+    raise exc_value.with_traceback(exc_tb)
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\orm\session.py", line 4408, in _flush
+    flush_context.execute()
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\orm\unitofwork.py", line 466, in execute
+    rec.execute(self)
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\orm\unitofwork.py", line 642, in execute
+    util.preloaded.orm_persistence.save_obj(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\orm\persistence.py", line 93, in save_obj
+    _emit_insert_statements(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\orm\persistence.py", line 1136, in _emit_insert_statements
+    result = connection.execute(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1416, in execute
+    return meth(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\sql\elements.py", line 516, in _execute_on_connection
+    return connection._execute_clauseelement(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1639, in _execute_clauseelement
+    ret = self._execute_context(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 2343, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\engine\base.py", line 1938, in _exec_single_context
+    self.dialect.do_executemany(
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\sqlalchemy\dialects\oracle\cx_oracle.py", line 1431, in do_executemany
+    cursor.executemany(statement, parameters)
+  File "C:\Users\jacks\Desktop\Tesseract\Nishant Exports\bic-ccd-project-2\bic-ccd\backend\venv\lib\site-packages\oracledb\cursor.py", line 809, in executemany
+    self._impl.executemany(
+  File "src\\oracledb\\impl/thin/cursor.pyx", line 211, in oracledb.thin_impl.ThinCursorImpl.executemany
+  File "src\\oracledb\\impl/thin/protocol.pyx", line 425, in oracledb.thin_impl.Protocol._process_single_message
+  File "src\\oracledb\\impl/thin/protocol.pyx", line 426, in oracledb.thin_impl.Protocol._process_single_message
+  File "src\\oracledb\\impl/thin/protocol.pyx", line 419, in oracledb.thin_impl.Protocol._process_message
+sqlalchemy.exc.IntegrityError: (oracledb.exceptions.IntegrityError) ORA-02291: integrity constraint (BIC_CCD.SYS_C0026178) violated - parent key not found
+Help: https://docs.oracle.com/error-help/db/ora-02291/
+[SQL: INSERT INTO "USER_ROLE_MAPPING" ("USER_ID", "ROLE_CODE", "REGION_ID", "IS_ACTIVE", "EFFECTIVE_FROM", "EFFECTIVE_TO", "CREATED_DT", "UPDATED_DT", "CREATED_BY", "UPDATED_BY") VALUES (:USER_ID, :ROLE_CODE, :REGION_ID, :IS_ACTIVE, :EFFECTIVE_FROM, :EFFECTIVE_TO, :CREATED_DT, :UPDATED_DT, :CREATED_BY, :UPDATED_BY) RETURNING "USER_ROLE_MAPPING"."MAPPING_ID" INTO :ret_0]
+[parameters: [{'USER_ID': 1, 'ROLE_CODE': 'MANAGEMENT', 'REGION_ID': 61, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}, {'USER_ID': 1, 'ROLE_CODE': 'MANAGEMENT', 'REGION_ID': 62, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}, {'USER_ID': 1, 'ROLE_CODE': 'MANAGEMENT', 'REGION_ID': 63, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}, {'USER_ID': 2, 'ROLE_CODE': 'L1_APPROVER', 'REGION_ID': 61, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}, {'USER_ID': 2, 'ROLE_CODE': 'L1_APPROVER', 'REGION_ID': 62, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}, {'USER_ID': 2, 'ROLE_CODE': 'L1_APPROVER', 'REGION_ID': 63, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}, {'USER_ID': 3, 'ROLE_CODE': 'L2_APPROVER', 'REGION_ID': 61, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}, {'USER_ID': 3, 'ROLE_CODE': 'L2_APPROVER', 'REGION_ID': 62, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}  ... displaying 10 of 21 total bound parameter sets ...  {'USER_ID': 7, 'ROLE_CODE': 'SYSTEM_ADMIN', 'REGION_ID': 62, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}, {'USER_ID': 7, 'ROLE_CODE': 'SYSTEM_ADMIN', 'REGION_ID': 63, 'IS_ACTIVE': 1, 'EFFECTIVE_FROM': datetime.date(2024, 1, 1), 'EFFECTIVE_TO': None, 'CREATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'UPDATED_DT': datetime.datetime(2026, 4, 8, 7, 3, 57, 43383), 'CREATED_BY': 'SYSTEM', 'UPDATED_BY': 'SYSTEM', 'ret_0': <oracledb.Var of type DB_TYPE_VARCHAR with value [[], None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None, None]>}]]
+(Background on this error at: https://sqlalche.me/e/20/gkpj)

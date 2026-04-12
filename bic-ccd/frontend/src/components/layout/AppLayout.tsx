@@ -40,7 +40,7 @@ const navSections = [
   {
     label: 'ADMINISTRATION',
     items: [
-      { label: 'KRI Wizard', icon: <Speed />, path: '/kri-wizard' },
+      { label: 'KRI Config', icon: <Speed />, path: '/kri-config' },
       { label: 'Admin', icon: <Settings />, path: '/admin' },
     ],
   },

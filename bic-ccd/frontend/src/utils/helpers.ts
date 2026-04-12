@@ -6,13 +6,13 @@ import type { RoleCode, ControlStatus, RAGStatus } from '../types';
 // Frontend (sidebar, route guards) and backend both derive from this.
 // ─────────────────────────────────────────────────────────────
 export const PAGE_ACCESS: Record<RoleCode, string[]> = {
-  SYSTEM_ADMIN:  ['dashboard', 'data-control', 'approvals', 'evidence', 'variance', 'scorecard', 'kri-wizard', 'admin', 'escalation-metrics'],
+  SYSTEM_ADMIN:  ['dashboard', 'data-control', 'approvals', 'evidence', 'variance', 'scorecard', 'kri-wizard', 'kri-config', 'admin', 'escalation-metrics'],
   L1_APPROVER:   ['dashboard', 'data-control', 'approvals', 'evidence'],
   L2_APPROVER:   ['dashboard', 'data-control', 'approvals', 'evidence'],
-  L3_ADMIN:      ['dashboard', 'data-control', 'approvals', 'evidence'],
-  MANAGEMENT:    ['dashboard', 'data-control', 'scorecard', 'escalation-metrics'],
-  DATA_PROVIDER: ['dashboard', 'data-control'],
-  METRIC_OWNER:  ['dashboard', 'data-control'],
+  L3_ADMIN:      ['dashboard', 'data-control', 'approvals', 'evidence', 'kri-config'],
+  MANAGEMENT:    ['dashboard', 'data-control', 'scorecard', 'escalation-metrics', 'kri-config'],
+  DATA_PROVIDER: ['dashboard', 'data-control', 'kri-config'],
+  METRIC_OWNER:  ['dashboard', 'data-control', 'kri-config'],
 };
 
 /**
@@ -40,16 +40,29 @@ export function getAllowedPages(roles: { role_code: string }[]): string[] {
 
 // ─── Status → Color + Icon + Label (WCAG AA compliant) ─────
 export const statusConfig: Record<string, { color: string; bg: string; icon: string; label: string }> = {
+  // Control statuses
   COMPLETED: { color: '#1e8449', bg: '#e8f8f0', icon: '✓', label: 'SLA Met' },
-  APPROVED: { color: '#1e8449', bg: '#e8f8f0', icon: '✓', label: 'Approved' },
+  SLA_MET:   { color: '#1e8449', bg: '#e8f8f0', icon: '✓', label: 'SLA Met' },
+  APPROVED:  { color: '#1e8449', bg: '#e8f8f0', icon: '✓', label: 'Approved' },
   SLA_BREACHED: { color: '#922b21', bg: '#fdecea', icon: '✕', label: 'SLA Breached' },
-  NOT_STARTED: { color: '#7f8c8d', bg: '#f0f0f0', icon: '—', label: 'Not Started' },
+  NOT_STARTED:  { color: '#7f8c8d', bg: '#f0f0f0', icon: '—', label: 'Not Started' },
   PENDING_APPROVAL: { color: '#b7950b', bg: '#fef9e7', icon: '⏳', label: 'Pending' },
   IN_PROGRESS: { color: '#2471a3', bg: '#ebf5fb', icon: '▶', label: 'In Progress' },
-  REWORK: { color: '#a04000', bg: '#fbeee6', icon: '↺', label: 'Rework' },
-  // Management simplified view — returned by backend when caller role is MANAGEMENT
+  REWORK:      { color: '#a04000', bg: '#fbeee6', icon: '↺', label: 'Rework' },
+  // Management simplified view
   PASS: { color: '#1e8449', bg: '#e8f8f0', icon: '✓', label: 'Pass' },
   FAIL: { color: '#922b21', bg: '#fdecea', icon: '✕', label: 'Fail' },
+  // Approval workflow / scorecard statuses
+  DRAFT:      { color: '#1565c0', bg: '#e3f2fd', icon: '✎', label: 'Draft' },
+  REJECTED:   { color: '#c62828', bg: '#ffebee', icon: '✕', label: 'Rejected' },
+  L1_PENDING: { color: '#f57c00', bg: '#fff8e1', icon: '⏳', label: 'L1 Pending' },
+  L2_PENDING: { color: '#e65100', bg: '#fff3e0', icon: '⏳', label: 'L2 Pending' },
+  L3_PENDING: { color: '#c62828', bg: '#ffebee', icon: '⏳', label: 'L3 Pending' },
+  // KRI config statuses
+  ACTIVE:     { color: '#1565c0', bg: '#e3f2fd', icon: '●', label: 'Active' },
+  // User / rule active state (display strings, not codes)
+  Active:     { color: '#1e8449', bg: '#e8f8f0', icon: '●', label: 'Active' },
+  Inactive:   { color: '#7f8c8d', bg: '#f0f0f0', icon: '●', label: 'Inactive' },
 };
 
 export const ragConfig: Record<string, { color: string; bg: string; icon: string; label: string }> = {

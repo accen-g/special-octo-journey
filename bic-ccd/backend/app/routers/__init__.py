@@ -1,7 +1,7 @@
 """FastAPI routers for BIC-CCD."""
 from datetime import datetime, date
 from typing import Optional, List
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Form, Body
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, UploadFile, File, Query, Form, Body
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 import os, uuid
@@ -455,6 +455,7 @@ def approval_history(
     def _enrich_history(s):
         cs = s.control_status
         kri = cs.kri if cs else None
+        dim = cs.dimension if cs else None
         # Surface the action/date/comments relevant to the requested level
         if level == "L1":
             action = s.l1_action
@@ -477,6 +478,8 @@ def approval_history(
             "kri_id": cs.kri_id if cs else None,
             "kri_name": kri.kri_name if kri else None,
             "kri_code": kri.kri_code if kri else None,
+            "dimension_name": dim.dimension_name if dim else None,
+            "region_name": kri.region.region_name if kri and kri.region else None,
             "period_year": cs.period_year if cs else None,
             "period_month": cs.period_month if cs else None,
             "final_status": s.final_status,
@@ -507,10 +510,73 @@ def approval_history(
 
 
 @mc_router.post("/{submission_id}/action")
-def process_approval(submission_id: int, req: MakerCheckerActionRequest,
-                     db: Session = Depends(get_db), user: dict = Depends(require_approvals)):
+def process_approval(
+    submission_id: int,
+    req: MakerCheckerActionRequest,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+    user: dict = Depends(require_approvals),
+):
+    from app.models import MonthlyControlStatus, MakerCheckerSubmission
+    from app.database import SessionLocal as _SessionLocal
+
     svc = MakerCheckerService(db)
     sub = svc.process_action(submission_id, req, user["user_id"])
+
+    # ── Trigger audit-evidence email in background ──────────────────────────
+    # Resolve the MonthlyControlStatus linked to this submission to get
+    # kri_id + period_year/month (needed for email trail storage).
+    try:
+        mcs = db.query(MonthlyControlStatus).filter(
+            MonthlyControlStatus.status_id == sub.status_id
+        ).first()
+        if mcs and mcs.kri_id and mcs.period_year and mcs.period_month:
+            kri_id = mcs.kri_id
+            year = mcs.period_year
+            month = mcs.period_month
+
+            # Build recipients: performing user + submitter (if email available)
+            recipients: list[str] = []
+            if user.get("email"):
+                recipients.append(user["email"])
+            # Also notify whoever submitted the data (l1 approver or submitter)
+            submitter = db.query(AppUser).filter(
+                AppUser.user_id == sub.submitted_by
+            ).first()
+            if submitter and submitter.email and submitter.email not in recipients:
+                recipients.append(submitter.email)
+
+            if recipients:
+                action_label = {
+                    "APPROVED": "Approved",
+                    "REJECTED": "Rejected",
+                    "REWORK":   "Rework Required",
+                    "ESCALATE": "Escalated",
+                    "ESCALATED": "Escalated",
+                }.get(req.action.upper(), req.action)
+
+                performed_by_user_id = user["user_id"]
+                now = datetime.utcnow()
+
+                def _email_bg():
+                    from app.routers.audit_evidence import trigger_outbound_email_background
+                    bg_db = _SessionLocal()
+                    try:
+                        trigger_outbound_email_background(
+                            kri_id, year, month, action_label,
+                            recipients, performed_by_user_id, bg_db,
+                        )
+                    finally:
+                        bg_db.close()
+
+                background_tasks.add_task(_email_bg)
+    except Exception as exc:
+        # Email failure must never break the approval response
+        import logging
+        logging.getLogger("bic_ccd").warning(
+            "Email trigger failed for submission %s: %s", submission_id, exc
+        )
+
     return {"submission_id": sub.submission_id, "final_status": sub.final_status}
 
 @mc_router.get("/{submission_id}")

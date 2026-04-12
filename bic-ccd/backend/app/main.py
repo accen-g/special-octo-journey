@@ -19,11 +19,15 @@ from app.routers import (
     admin_override_router, assignment_rule_router,
 )
 from app.routers.scorecard import scorecard_router
+from app.routers.kri_onboarding import router as kri_onboarding_router
+from app.routers.audit_evidence import router as audit_evidence_router
 from app.models import (
     RegionMaster, KriCategoryMaster, ControlDimensionMaster,
     AppUser, UserRoleMapping, KriMaster, KriConfiguration,
     MonthlyControlStatus, MetricValues, KriAssignment,
     MakerCheckerSubmission, ApprovalAuditTrail, KriStatusLookup,
+    KriBluesheet, KriApprovalLog,
+    KriEvidenceMetadata, KriEmailIteration, KriAuditSummary,
 )
 
 settings = get_settings()
@@ -139,12 +143,12 @@ def seed_database():
 
         # ── Users ──────────────────────────────────────────
         users_data = [
-            ("RANREDDY", "Rahul Anreddy", "rahul.anreddy@company.com", "Risk Mgmt", "MANAGEMENT"),
-            ("JSMITH01", "John Smith", "john.smith@company.com", "Controls", "L1_APPROVER"),
-            ("ALEE02", "Angela Lee", "angela.lee@company.com", "Controls", "L2_APPROVER"),
-            ("BWILSON", "Brian Wilson", "brian.wilson@company.com", "Controls", "L3_ADMIN"),
-            ("DPATEL", "Deepa Patel", "deepa.patel@company.com", "Data Ops", "DATA_PROVIDER"),
-            ("MKUMAR", "Manoj Kumar", "manoj.kumar@company.com", "Metrics", "METRIC_OWNER"),
+            ("SA41230", "Shahzad Alam", "sa41230@company.com", "Risk Mgmt", "MANAGEMENT"),
+            ("VR31849", "Vivek Avireddy", "vr31849@company.com", "Controls", "L1_APPROVER"),
+            ("HK51214", "Hasmukh Katechiya", "hk51214@company.com", "Controls", "L2_APPROVER"),
+            ("DH71298", "Dawn Higgs", "dh71298@company.com", "Controls", "L3_ADMIN"),
+            ("GD24043", "Gayatri Deshmukh", "gd24043@company.com", "Data Ops", "DATA_PROVIDER"),
+            ("PT81286", "Paul Thirtle", "pt81286@company.com", "Metrics", "METRIC_OWNER"),
             ("SYSADMIN", "System Admin", "admin@company.com", "IT", "SYSTEM_ADMIN"),
         ]
         existing_users = {u.soe_id: u for u in db.query(AppUser).all()}
@@ -462,6 +466,8 @@ app.include_router(datasource_router)
 app.include_router(admin_override_router)
 app.include_router(assignment_rule_router)
 app.include_router(scorecard_router)
+app.include_router(kri_onboarding_router)
+app.include_router(audit_evidence_router)
 
 # Serve frontend static build in production
 if os.path.exists("static"):

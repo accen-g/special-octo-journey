@@ -1,0 +1,15 @@
+{
+  "uuid": "ca97160d-f3a7-4a36-8f6f-9150bd18894a",
+  "subject": "KRI-4 [April 2026] | Iter-1 | Rework Required",
+  "to": [
+    "dh71298@company.com",
+    "gd24043@company.com"
+  ],
+  "from": "noreply@dev.local",
+  "kri_id": 4,
+  "kri_code": "KRI-UK-004",
+  "period": "April 2026",
+  "iteration": 1,
+  "action": "Rework Required",
+  "sent_at": "2026-04-11T14:12:46.922675"
+}
