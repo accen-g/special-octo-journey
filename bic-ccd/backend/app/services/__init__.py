@@ -480,7 +480,15 @@ class MakerCheckerService:
             if action == "APPROVED":
                 sub.final_status = "APPROVED"
             elif action == "REWORK":
-                sub.final_status = "REWORK"
+                # Reset chain so L1 must re-approve after data is reworked
+                sub.l3_action = "REWORK"
+                sub.l2_action = None
+                sub.l2_action_dt = None
+                sub.l1_action = None
+                sub.l1_action_dt = None
+                sub.final_status = "L1_PENDING"
+                if sub.l1_approver_id:
+                    self._notify(sub.l1_approver_id, sub, "L1")
             elif action == "REJECTED":
                 sub.l3_action = "REJECTED"
                 sub.l2_action = None
