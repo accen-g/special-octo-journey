@@ -70,7 +70,9 @@ interface UploadKriContext {
   kri_name: string;
   region_code?: string;
   region_name?: string;
-  control_id?: string;
+  dimension_id: number;      // which control this upload targets
+  control_id?: string;       // dimension_code for S3 path
+  control_name?: string;     // human-readable control name for display
   period_year: number;
   period_month: number;
 }
@@ -116,6 +118,7 @@ function UploadEvidenceModal({ open, onClose, kri }: UploadEvidenceModalProps) {
     fd.append('year', String(kri.period_year));
     fd.append('month', String(kri.period_month));
     fd.append('evidence_type', evidenceType);
+    fd.append('dimension_id', String(kri.dimension_id));
     if (notes) fd.append('notes', notes);
     uploadMutation.mutate(fd);
   };
@@ -130,7 +133,7 @@ function UploadEvidenceModal({ open, onClose, kri }: UploadEvidenceModalProps) {
         <CloudUpload fontSize="small" /> Upload Evidence
         {kri && (
           <Typography variant="body2" sx={{ color: 'text.secondary', ml: 1, fontWeight: 400 }}>
-            {kri.kri_code} &nbsp;|&nbsp; {periodLabel(kri.period_year, kri.period_month)} &nbsp;|&nbsp; {kri.region_name ?? kri.region_code}
+            {kri.kri_code} &nbsp;|&nbsp; {kri.control_name ?? kri.control_id ?? '—'} &nbsp;|&nbsp; {periodLabel(kri.period_year, kri.period_month)} &nbsp;|&nbsp; {kri.region_name ?? kri.region_code}
           </Typography>
         )}
       </DialogTitle>
@@ -157,9 +160,9 @@ function UploadEvidenceModal({ open, onClose, kri }: UploadEvidenceModalProps) {
                 <Typography variant="body2">{kri.kri_name}</Typography>
               </Grid>
               <Grid item xs={4}>
-                <Typography variant="caption" color="text.secondary">Control ID</Typography>
+                <Typography variant="caption" color="text.secondary">Control</Typography>
                 <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                  {kri.control_id ?? '—'}
+                  {kri.control_name ?? kri.control_id ?? '—'}
                 </Typography>
               </Grid>
             </Grid>
@@ -263,20 +266,27 @@ interface ViewEvidenceModalProps {
   kriId: number | null;
   kriCode?: string;
   kriName?: string;
+  controlCode?: string;   // dimension_code — filters evidence to this control only
+  controlName?: string;   // for display
   periodYear: number;
   periodMonth: number;
 }
 
-function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, periodYear, periodMonth }: ViewEvidenceModalProps) {
+function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, controlCode, controlName, periodYear, periodMonth }: ViewEvidenceModalProps) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<'all' | 'email' | 'audit'>('all');
   const { user } = useAppSelector((s) => s.auth);
   const isL3 = user?.roles?.some(r => r.role_code === 'L3_ADMIN' || r.role_code === 'SYSTEM_ADMIN') ?? false;
 
   const { data: evidences = [], isLoading } = useQuery<AuditEvidenceItem[]>({
-    queryKey: ['audit-evidence', kriId, periodYear, periodMonth],
+    queryKey: ['audit-evidence', kriId, periodYear, periodMonth, controlCode],
     queryFn: () =>
-      auditEvidenceApi.list({ kri_id: kriId, year: periodYear, month: periodMonth }).then(r => r.data),
+      auditEvidenceApi.list({
+        kri_id: kriId,
+        year: periodYear,
+        month: periodMonth,
+        ...(controlCode ? { control_code: controlCode } : {}),
+      }).then(r => r.data),
     enabled: open && kriId !== null,
   });
 
@@ -331,7 +341,9 @@ function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, periodYear,
       <DialogTitle sx={{ fontWeight: 700, display: 'flex', alignItems: 'center', gap: 1 }}>
         <Visibility fontSize="small" /> Evidence — {kriCode}
         <Typography variant="body2" sx={{ color: 'text.secondary', fontWeight: 400, ml: 1 }}>
-          {kriName} &nbsp;|&nbsp; {periodLabel(periodYear, periodMonth)}
+          {kriName}
+          {controlName && <> &nbsp;|&nbsp; <strong>{controlName}</strong></>}
+          &nbsp;|&nbsp; {periodLabel(periodYear, periodMonth)}
         </Typography>
       </DialogTitle>
 
@@ -583,7 +595,7 @@ export default function EvidencePage() {
         .then(r => r.data),
   });
 
-  // Derived stat counts
+  // Derived stat counts — each entry is one KRI × Control combination
   const totalKris = kris.length;
   const withEvidence = kris.filter(k => k.evidence_count > 0).length;
   const pending = kris.filter(k => k.status === 'PENDING_APPROVAL').length;
@@ -597,7 +609,10 @@ export default function EvidencePage() {
     if (colFilters.kri_code && !k.kri_code?.toLowerCase().includes(colFilters.kri_code.toLowerCase())) return false;
     if (colFilters.kri_name && !k.kri_name.toLowerCase().includes(colFilters.kri_name.toLowerCase())) return false;
     if (colFilters.region && !(k.region_name ?? k.region_code ?? '').toLowerCase().includes(colFilters.region.toLowerCase())) return false;
-    if (colFilters.control_id && !(k.control_id ?? '').toLowerCase().includes(colFilters.control_id.toLowerCase())) return false;
+    if (colFilters.control_id && !(
+      (k.control_name ?? '').toLowerCase().includes(colFilters.control_id.toLowerCase()) ||
+      (k.control_id ?? '').toLowerCase().includes(colFilters.control_id.toLowerCase())
+    )) return false;
     if (colFilters.data_provider && !(k.data_provider_name ?? '').toLowerCase().includes(colFilters.data_provider.toLowerCase())) return false;
     return true;
   });
@@ -609,7 +624,9 @@ export default function EvidencePage() {
       kri_name: row.kri_name,
       region_code: row.region_code,
       region_name: row.region_name,
+      dimension_id: row.dimension_id,
       control_id: row.control_id,
+      control_name: row.control_name,
       period_year: row.period_year,
       period_month: row.period_month,
     });
@@ -644,7 +661,7 @@ export default function EvidencePage() {
       {/* Stat Cards */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {[
-          { label: 'Total KRIs', value: totalKris, color: '#1a56db', icon: <Assignment /> },
+          { label: 'Total Controls', value: totalKris, color: '#1a56db', icon: <Assignment /> },
           { label: 'With Evidence', value: withEvidence, color: '#065f46', icon: <CheckCircle /> },
           { label: 'Pending Approval', value: pending, color: '#92400e', icon: <HourglassEmpty /> },
           { label: 'Approved', value: approved, color: '#065f46', icon: <CheckCircle /> },
@@ -735,7 +752,7 @@ export default function EvidencePage() {
                 </TableHead>
                 <TableBody>
                   {filtered.map((row) => (
-                    <TableRow key={row.kri_id} hover>
+                    <TableRow key={`${row.kri_id}-${row.dimension_id}`} hover>
                       <TableCell>
                         <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600, fontSize: '0.8rem' }}>
                           {row.kri_code ?? `KRI-${row.kri_id}`}
@@ -747,9 +764,14 @@ export default function EvidencePage() {
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem', color: row.control_id ? 'text.primary' : 'text.disabled' }}>
-                          {row.control_id ?? '—'}
+                        <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 600, color: row.control_name ? '#1e40af' : 'text.disabled' }}>
+                          {row.control_name ?? row.control_id ?? '—'}
                         </Typography>
+                        {row.control_id && row.control_name && (
+                          <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.disabled', fontSize: '0.68rem', display: 'block' }}>
+                            {row.control_id}
+                          </Typography>
+                        )}
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2" sx={{ fontSize: '0.78rem' }}>
@@ -829,6 +851,8 @@ export default function EvidencePage() {
           kriId={viewKri.kri_id}
           kriCode={viewKri.kri_code}
           kriName={viewKri.kri_name}
+          controlCode={viewKri.control_id}
+          controlName={viewKri.control_name}
           periodYear={viewKri.period_year}
           periodMonth={viewKri.period_month}
         />

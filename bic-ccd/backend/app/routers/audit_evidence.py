@@ -41,7 +41,7 @@ from app.middleware import (
 from app.models import (
     AppUser, KriApprovalLog, KriAuditSummary, KriBluesheet,
     KriEmailIteration, KriEvidenceMetadata, KriMaster, RegionMaster,
-    MonthlyControlStatus,
+    MonthlyControlStatus, KriConfiguration, ControlDimensionMaster,
 )
 from app.schemas import (
     AuditEvidenceItem, AuditEvidenceKriRow, AuditSummaryResponse,
@@ -384,79 +384,103 @@ def list_kris_with_evidence(
     db: Session = Depends(get_db),
     _user: dict = Depends(require_evidence),
 ):
-    """Return active KRIs with their evidence counts for the Evidence page table."""
-    query = (
-        db.query(KriMaster)
-        .filter(KriMaster.is_active == True)
-    )
+    """Return one row per active KRI × Control for the Evidence page table.
+
+    Each row has its own status (from CCB_KRI_CONTROL_STATUS_TRACKER) and
+    evidence count (from BIC_KRI_EVIDENCE_METADATA filtered by dimension_code).
+    """
+    # 1 ── Active KRIs (with optional region / search filters)
+    kri_query = db.query(KriMaster).filter(KriMaster.is_active == True)
     if region_id:
-        query = query.filter(KriMaster.region_id == region_id)
+        kri_query = kri_query.filter(KriMaster.region_id == region_id)
     if search:
         s = f"%{search.lower()}%"
-        query = query.filter(
+        kri_query = kri_query.filter(
             KriMaster.kri_code.ilike(s) | KriMaster.kri_name.ilike(s)
         )
+    kris = kri_query.all()
+    kri_ids = [k.kri_id for k in kris]
+    kri_map = {k.kri_id: k for k in kris}
 
-    kris = query.all()
+    if not kri_ids:
+        return []
 
-    # Evidence counts in one query
-    counts_q = (
-        db.query(
-            KriEvidenceMetadata.kri_id,
-            func.count(KriEvidenceMetadata.evidence_id).label("cnt"),
+    # 2 ── Active KRI × Control configurations (one row per pair)
+    configs = (
+        db.query(KriConfiguration, ControlDimensionMaster)
+        .join(
+            ControlDimensionMaster,
+            KriConfiguration.dimension_id == ControlDimensionMaster.dimension_id,
         )
         .filter(
-            KriEvidenceMetadata.period_year == year,
-            KriEvidenceMetadata.period_month == month,
+            KriConfiguration.kri_id.in_(kri_ids),
+            KriConfiguration.is_active == True,
         )
-        .group_by(KriEvidenceMetadata.kri_id)
+        .order_by(KriConfiguration.kri_id, ControlDimensionMaster.display_order)
         .all()
     )
-    counts = {r.kri_id: r.cnt for r in counts_q}
 
-    # Bluesheet lookup (data_provider_name, control_ids)
-    bluesheet_q = (
-        db.query(KriBluesheet)
-        .filter(KriBluesheet.kri_id.in_([k.kri_id for k in kris]))
-        .all()
-    )
-    bs_map = {bs.kri_id: bs for bs in bluesheet_q}
-
-    # KRI-level status (aggregate over all dimensions for the period)
-    status_q = (
+    # 3 ── Per-control status from CCB_KRI_CONTROL_STATUS_TRACKER
+    #       Key: (kri_id, dimension_id)
+    status_rows = (
         db.query(
             MonthlyControlStatus.kri_id,
+            MonthlyControlStatus.dimension_id,
             MonthlyControlStatus.status,
         )
         .filter(
             MonthlyControlStatus.period_year == year,
             MonthlyControlStatus.period_month == month,
+            MonthlyControlStatus.kri_id.in_(kri_ids),
         )
         .all()
     )
-    # Aggregate: if any PENDING_APPROVAL → PENDING_APPROVAL, else first status found
-    status_map: dict[int, str] = {}
-    for row in status_q:
-        existing = status_map.get(row.kri_id)
-        if existing is None:
-            status_map[row.kri_id] = row.status
-        elif row.status == "PENDING_APPROVAL":
-            status_map[row.kri_id] = "PENDING_APPROVAL"
-        elif row.status == "APPROVED" and existing not in ("PENDING_APPROVAL",):
-            status_map[row.kri_id] = "APPROVED"
+    status_map: dict[tuple, str] = {
+        (r.kri_id, r.dimension_id): r.status for r in status_rows
+    }
 
+    # 4 ── Per-control evidence counts from BIC_KRI_EVIDENCE_METADATA
+    #       Grouped by (kri_id, control_id string = dimension_code)
+    ev_counts_q = (
+        db.query(
+            KriEvidenceMetadata.kri_id,
+            KriEvidenceMetadata.control_id,
+            func.count(KriEvidenceMetadata.evidence_id).label("cnt"),
+        )
+        .filter(
+            KriEvidenceMetadata.period_year == year,
+            KriEvidenceMetadata.period_month == month,
+            KriEvidenceMetadata.kri_id.in_(kri_ids),
+        )
+        .group_by(KriEvidenceMetadata.kri_id, KriEvidenceMetadata.control_id)
+        .all()
+    )
+    # Key: (kri_id, dimension_code_string)
+    ev_count_map: dict[tuple, int] = {
+        (r.kri_id, r.control_id): r.cnt for r in ev_counts_q
+    }
+
+    # 5 ── Bluesheet lookup (data_provider_name only)
+    bs_map = {
+        bs.kri_id: bs
+        for bs in db.query(KriBluesheet)
+        .filter(KriBluesheet.kri_id.in_(kri_ids))
+        .all()
+    }
+
+    # 6 ── Build one row per KRI × Control
     rows = []
-    for kri in kris:
-        bs = bs_map.get(kri.kri_id)
-        kri_status = status_map.get(kri.kri_id, "NOT_STARTED")
-        if status and kri_status != status:
+    for cfg, dim in configs:
+        kri = kri_map[cfg.kri_id]
+        ctrl_status = status_map.get((cfg.kri_id, cfg.dimension_id), "NOT_STARTED")
+
+        # Apply server-side status filter if requested
+        if status and ctrl_status != status:
             continue
-        control_id = None
-        data_provider_name = None
-        if bs:
-            if bs.control_ids:
-                control_id = bs.control_ids.split(",")[0].strip()
-            data_provider_name = bs.data_provider_name
+
+        dim_code = dim.dimension_code  # e.g. "TIMELINESS"
+        ev_cnt = ev_count_map.get((cfg.kri_id, dim_code), 0)
+        bs = bs_map.get(cfg.kri_id)
 
         rows.append(
             AuditEvidenceKriRow(
@@ -465,10 +489,12 @@ def list_kris_with_evidence(
                 kri_name=kri.kri_name,
                 region_name=kri.region.region_name if kri.region else None,
                 region_code=kri.region.region_code if kri.region else None,
-                control_id=control_id,
-                data_provider_name=data_provider_name,
-                status=kri_status,
-                evidence_count=counts.get(kri.kri_id, 0),
+                dimension_id=cfg.dimension_id,
+                control_id=dim_code,
+                control_name=dim.dimension_name,
+                data_provider_name=bs.data_provider_name if bs else None,
+                status=ctrl_status,
+                evidence_count=ev_cnt,
                 period_year=year,
                 period_month=month,
             )
@@ -485,6 +511,7 @@ def list_evidence(
     month: Optional[int] = Query(None),
     evidence_type: Optional[str] = Query(None),
     region_id: Optional[int] = Query(None),
+    control_code: Optional[str] = Query(None),   # filter by dimension_code string
     db: Session = Depends(get_db),
     _user: dict = Depends(require_evidence),
 ):
@@ -497,6 +524,8 @@ def list_evidence(
         q = q.filter(KriEvidenceMetadata.period_month == month)
     if evidence_type:
         q = q.filter(KriEvidenceMetadata.evidence_type == evidence_type)
+    if control_code:
+        q = q.filter(KriEvidenceMetadata.control_id == control_code)
     if region_id:
         kri_ids = [
             k.kri_id
@@ -545,6 +574,7 @@ async def upload_evidence(
     month: int = Form(...),
     notes: Optional[str] = Form(None),
     evidence_type: str = Form("manual"),
+    dimension_id: Optional[int] = Form(None),   # which control this evidence belongs to
     db: Session = Depends(get_db),
     current_user: dict = Depends(require_evidence),
 ):
@@ -566,10 +596,24 @@ async def upload_evidence(
             detail=f"Unsupported file type '{ext}'. Allowed: {', '.join(allowed_ext)}",
         )
 
-    # Resolve KRI context
-    ctx = _get_kri_context(kri_id, db)
-    region_code = ctx["region_code"]
-    control_id = ctx["control_id"]
+    # Resolve region_code from KRI
+    kri = db.query(KriMaster).filter(KriMaster.kri_id == kri_id).first()
+    if not kri:
+        raise HTTPException(status_code=404, detail=f"KRI {kri_id} not found")
+    region_code = kri.region.region_code if kri.region else "UNKNOWN"
+
+    # Resolve control_id string from dimension_id when supplied,
+    # otherwise fall back to the old _get_kri_context behaviour.
+    if dimension_id is not None:
+        dim = (
+            db.query(ControlDimensionMaster)
+            .filter(ControlDimensionMaster.dimension_id == dimension_id)
+            .first()
+        )
+        control_id = dim.dimension_code if (dim and dim.dimension_code) else f"DIM{dimension_id}"
+    else:
+        ctx = _get_kri_context(kri_id, db)
+        control_id = ctx["control_id"]
 
     # Unique filename to avoid overwrites
     ts = datetime.utcnow().strftime("%Y%m%d%H%M%S")
@@ -602,6 +646,7 @@ async def upload_evidence(
         "evidence_id": meta.evidence_id,
         "s3_path": s3_key,
         "file_name": file.filename,
+        "control_id": control_id,
     }
 
 

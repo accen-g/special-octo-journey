@@ -1,0 +1,11 @@
+Migration strategy for existing data
+Existing rows in BIC_KRI_EVIDENCE_METADATA have CONTROL_ID_STR set to old fallback strings (KRI1, KRI2, etc.) — they will not match any dimension_code and show as orphaned. They are still visible if you open the modal without a control_code filter. To re-associate them:
+
+
+-- For each old evidence row, set control_id to the correct dimension_code.
+-- Example: if KRI 1 has only one control "TIMELINESS", re-tag all its orphaned evidence:
+UPDATE BIC_KRI_EVIDENCE_METADATA
+SET CONTROL_ID_STR = 'TIMELINESS'
+WHERE KRI_ID = 1
+  AND (CONTROL_ID_STR IS NULL OR CONTROL_ID_STR LIKE 'KRI%');
+Run this per KRI with the correct code from SELECT DIMENSION_CODE FROM CCB_KRI_CONTROL.

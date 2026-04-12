@@ -643,13 +643,15 @@ class AuditEvidenceItem(BaseModel):
 
 
 class AuditEvidenceKriRow(BaseModel):
-    """Summary row for the Evidence page KRI table."""
+    """Summary row for the Evidence page KRI table — one row per KRI × Control."""
     kri_id: int
     kri_code: Optional[str] = None
     kri_name: str
     region_name: Optional[str] = None
     region_code: Optional[str] = None
-    control_id: Optional[str] = None
+    dimension_id: int                        # FK to CCB_KRI_CONTROL.CONTROL_ID
+    control_id: Optional[str] = None        # dimension_code e.g. "TIMELINESS"
+    control_name: Optional[str] = None      # dimension_name e.g. "Timeliness"
     data_provider_name: Optional[str] = None
     status: str
     evidence_count: int = 0

@@ -106,7 +106,9 @@ export interface AuditEvidenceKriRow {
   kri_name: string;
   region_name?: string;
   region_code?: string;
-  control_id?: string;
+  dimension_id: number;       // FK to CCB_KRI_CONTROL — unique per control row
+  control_id?: string;        // dimension_code e.g. "TIMELINESS"
+  control_name?: string;      // dimension_name e.g. "Timeliness"
   data_provider_name?: string;
   status: string;
   evidence_count: number;
