@@ -58,7 +58,13 @@ auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     svc = AuthService(db)
     user_data = svc.authenticate(req.soe_id, req.password)
-    token = create_access_token({"soe_id": user_data["soe_id"], "user_id": user_data["user_id"]})
+    token = create_access_token({
+        "soe_id": user_data["soe_id"],
+        "user_id": user_data["user_id"],
+        "roles": user_data["roles"],
+        "full_name": user_data["full_name"],
+        "email": user_data["email"],
+    })
     return {"access_token": token, "token_type": "bearer", "user": user_data}
 
 @auth_router.get("/me")

@@ -290,7 +290,8 @@ class MonthlyStatusRepository:
         return obj
 
     def update_status(self, obj: MonthlyControlStatus, new_status: str,
-                      approval_level: str = None, approver_id: int = None):
+                      approval_level: str = None, approver_id: int = None,
+                      autocommit: bool = True):
         obj.status = new_status
         if approval_level:
             obj.approval_level = approval_level
@@ -300,8 +301,11 @@ class MonthlyStatusRepository:
         if new_status in ("COMPLETED", "APPROVED"):
             obj.completed_dt = datetime.utcnow()
             obj.sla_met = obj.sla_due_dt and datetime.utcnow() <= obj.sla_due_dt
-        self.db.commit()
-        self.db.refresh(obj)
+        if autocommit:
+            self.db.commit()
+            self.db.refresh(obj)
+        else:
+            self.db.flush()
         return obj
 
     def get_summary_counts(self, year: int, month: int, region_id: int = None) -> dict:
@@ -316,6 +320,39 @@ class MonthlyStatusRepository:
             q = q.filter(KriMaster.region_id == region_id)
         q = q.group_by(MonthlyControlStatus.status)
         return {row[0]: row[1] for row in q.all()}
+
+    def get_multi_period_summary_counts(
+        self, periods: List[tuple], region_id: int = None
+    ) -> dict:
+        """Single query returning {(year, month): {status: count}} for multiple periods.
+
+        Replaces N sequential get_summary_counts calls with one GROUP BY query,
+        eliminating N-1 Oracle round-trips (critical at high-latency links).
+        """
+        conditions = [
+            and_(
+                MonthlyControlStatus.period_year == y,
+                MonthlyControlStatus.period_month == m,
+            )
+            for y, m in periods
+        ]
+        q = self.db.query(
+            MonthlyControlStatus.period_year,
+            MonthlyControlStatus.period_month,
+            MonthlyControlStatus.status,
+            func.count(MonthlyControlStatus.status_id),
+        ).join(KriMaster).filter(or_(*conditions))
+        if region_id:
+            q = q.filter(KriMaster.region_id == region_id)
+        q = q.group_by(
+            MonthlyControlStatus.period_year,
+            MonthlyControlStatus.period_month,
+            MonthlyControlStatus.status,
+        )
+        result: dict = {}
+        for year, month, status, cnt in q.all():
+            result.setdefault((year, month), {})[status] = cnt
+        return result
 
     def get_rag_counts(self, year: int, month: int, region_id: int = None) -> dict:
         q = self.db.query(
@@ -332,26 +369,32 @@ class MonthlyStatusRepository:
 
     def get_trend_data(self, months: int = 6, region_id: int = None,
                        anchor_year: int = None, anchor_month: int = None) -> List[dict]:
-        """Return status counts per month for last N months ending at anchor_year/anchor_month."""
+        """Return status counts per month for last N months ending at anchor_year/anchor_month.
+
+        Uses a single batched query instead of N sequential round-trips.
+        """
         now = datetime.utcnow()
         base_year = anchor_year or now.year
         base_month = anchor_month or now.month
-        results = []
+        periods = []
         for i in range(months - 1, -1, -1):
             m = base_month - i
             y = base_year
             while m <= 0:
                 m += 12
                 y -= 1
-            counts = self.get_summary_counts(y, m, region_id)
-            sla_met = counts.get("COMPLETED", 0) + counts.get("APPROVED", 0)
-            breached = counts.get("SLA_BREACHED", 0)
-            not_started = counts.get("NOT_STARTED", 0)
+            periods.append((y, m))
+
+        multi = self.get_multi_period_summary_counts(periods, region_id)
+
+        results = []
+        for y, m in periods:
+            counts = multi.get((y, m), {})
             results.append({
                 "period": f"{datetime(y, m, 1):%b %y}",
-                "sla_met": sla_met,
-                "sla_breached": breached,
-                "not_started": not_started
+                "sla_met": counts.get("COMPLETED", 0) + counts.get("APPROVED", 0),
+                "sla_breached": counts.get("SLA_BREACHED", 0),
+                "not_started": counts.get("NOT_STARTED", 0),
             })
         return results
 
@@ -413,11 +456,14 @@ class ApprovalAuditRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, data: dict) -> ApprovalAuditTrail:
+    def create(self, data: dict, autocommit: bool = True) -> ApprovalAuditTrail:
         obj = ApprovalAuditTrail(**data)
         self.db.add(obj)
-        self.db.commit()
-        self.db.refresh(obj)
+        if autocommit:
+            self.db.commit()
+            self.db.refresh(obj)
+        else:
+            self.db.flush()
         return obj
 
     def get_for_status(self, status_id: int) -> List[ApprovalAuditTrail]:
@@ -505,11 +551,14 @@ class MakerCheckerRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, data: dict) -> MakerCheckerSubmission:
+    def create(self, data: dict, autocommit: bool = True) -> MakerCheckerSubmission:
         obj = MakerCheckerSubmission(**data)
         self.db.add(obj)
-        self.db.commit()
-        self.db.refresh(obj)
+        if autocommit:
+            self.db.commit()
+            self.db.refresh(obj)
+        else:
+            self.db.flush()
         return obj
 
     def get_by_id(self, sid: int) -> Optional[MakerCheckerSubmission]:
@@ -650,10 +699,13 @@ class MakerCheckerRepository:
         q = q.order_by(desc(MakerCheckerSubmission.submitted_dt))
         return paginate(q, page, page_size)
 
-    def update(self, sub: MakerCheckerSubmission) -> MakerCheckerSubmission:
+    def update(self, sub: MakerCheckerSubmission, autocommit: bool = True) -> MakerCheckerSubmission:
         sub.updated_dt = datetime.utcnow()
-        self.db.commit()
-        self.db.refresh(sub)
+        if autocommit:
+            self.db.commit()
+            self.db.refresh(sub)
+        else:
+            self.db.flush()
         return sub
 
 
@@ -733,10 +785,13 @@ class NotificationRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, data: dict) -> Notification:
+    def create(self, data: dict, autocommit: bool = True) -> Notification:
         obj = Notification(**data)
         self.db.add(obj)
-        self.db.commit()
+        if autocommit:
+            self.db.commit()
+        else:
+            self.db.flush()
         return obj
 
     def get_for_user(self, user_id: int, unread_only: bool = False, limit: int = 20):

@@ -75,16 +75,16 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Not authenticated")
     payload = decode_token(credentials.credentials)
     user_repo = UserRepository(db)
+    # One DB call: verify user is still active. Roles come from the signed JWT.
     user = user_repo.get_by_soe_id(payload.get("soe_id", ""))
     if not user or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or disabled")
-    roles = user_repo.get_roles(user.user_id)
     return {
         "user_id": user.user_id,
         "soe_id": user.soe_id,
         "full_name": user.full_name,
         "email": user.email,
-        "roles": [{"role_code": r.role_code, "region_id": r.region_id} for r in roles]
+        "roles": payload.get("roles", []),
     }
 
 
