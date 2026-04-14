@@ -91,29 +91,57 @@ class DashboardService:
 
     def get_summary(self, year: int, month: int, region_id: int = None) -> dict:
         counts = self.status_repo.get_summary_counts(year, month, region_id)
-        total = sum(counts.values()) or 1  # avoid div zero
+        total = sum(counts.values())        # raw count — never artificially inflated
+        pct_base = total or 1               # denominator for percentages only
         sla_met = counts.get("COMPLETED", 0) + counts.get("APPROVED", 0)
         sla_breached = counts.get("SLA_BREACHED", 0)
         not_started = counts.get("NOT_STARTED", 0)
         pending = counts.get("PENDING_APPROVAL", 0)
 
-        regions = self.region_repo.get_all()
+        # Pending approvals grouped by level
+        pending_by_level = self.status_repo.get_pending_approvals_by_level(year, month, region_id)
+
+        # Month-over-month: always compare with previous calendar month
+        prev_month = month - 1
+        prev_year = year
+        if prev_month <= 0:
+            prev_month += 12
+            prev_year -= 1
+        prev_counts = self.status_repo.get_summary_counts(prev_year, prev_month, region_id)
+        prev_total = sum(prev_counts.values()) or 1
+        prev_sla_met = prev_counts.get("COMPLETED", 0) + prev_counts.get("APPROVED", 0)
+        prev_sla_breached = prev_counts.get("SLA_BREACHED", 0)
+        mom_sla_met_pct = round((sla_met - prev_sla_met) / prev_total * 100, 1) if prev_total else None
+        mom_sla_breached_delta = sla_breached - prev_sla_breached
+        mom_period_label = f"{datetime(prev_year, prev_month, 1):%b %Y}"
+
+        # Return region codes scoped to the selected region (or all if no filter)
+        if region_id:
+            region = self.region_repo.get_by_id(region_id)
+            region_codes = [region.region_code] if region else []
+        else:
+            region_codes = [r.region_code for r in self.region_repo.get_all()]
+
         return {
             "total_kris": total,
             "sla_met": sla_met,
-            "sla_met_pct": round(sla_met / total * 100, 1) if total else 0,
+            "sla_met_pct": round(sla_met / pct_base * 100, 1),
             "sla_breached": sla_breached,
-            "sla_breached_pct": round(sla_breached / total * 100, 1) if total else 0,
+            "sla_breached_pct": round(sla_breached / pct_base * 100, 1),
             "not_started": not_started,
-            "not_started_pct": round(not_started / total * 100, 1) if total else 0,
+            "not_started_pct": round(not_started / pct_base * 100, 1),
             "pending_approvals": pending,
-            "regions": [r.region_code for r in regions],
+            "pending_by_level": pending_by_level,
+            "regions": region_codes,
             "period": f"{datetime(year, month, 1):%B %Y}",
             "last_updated": datetime.utcnow(),
+            "mom_sla_met_pct": mom_sla_met_pct,
+            "mom_sla_breached_delta": mom_sla_breached_delta,
+            "mom_period_label": mom_period_label,
         }
 
-    def get_trend(self, months: int = 6, region_id: int = None) -> List[dict]:
-        return self.status_repo.get_trend_data(months, region_id)
+    def get_trend(self, months: int = 6, region_id: int = None, year: int = None, month: int = None) -> List[dict]:
+        return self.status_repo.get_trend_data(months, region_id, year, month)
 
     def get_dimension_breakdown(self, year: int, month: int, region_id: int = None) -> List[dict]:
         return self.status_repo.get_dimension_breakdown(year, month, region_id)
@@ -406,10 +434,29 @@ class MakerCheckerService:
             sub.l1_action_dt = now
             sub.l1_comments = action_req.comments
             if action == "APPROVED":
-                if action_req.next_approver_id:
-                    sub.l2_approver_id = action_req.next_approver_id
+                l2_id = action_req.next_approver_id
+                if not l2_id:
+                    # Auto-resolve L2 approver via assignment rules
+                    _mcs = self.status_repo.get_by_id(sub.status_id)
+                    l2_id = self.assign_svc.resolve_approver(
+                        role_code="L2_APPROVER",
+                        kri_id=_mcs.kri_id if _mcs else None,
+                    )
+                if not l2_id:
+                    # Last-resort: any active L2_APPROVER in the system
+                    from app.models import UserRoleMapping as _URM
+                    _fb = (
+                        self.db.query(AppUser)
+                        .join(_URM, _URM.user_id == AppUser.user_id)
+                        .filter(_URM.role_code == "L2_APPROVER", _URM.is_active == True, AppUser.is_active == True)
+                        .first()
+                    )
+                    if _fb:
+                        l2_id = _fb.user_id
+                if l2_id:
+                    sub.l2_approver_id = l2_id
                     sub.final_status = "L2_PENDING"
-                    self._notify(action_req.next_approver_id, sub, "L2")
+                    self._notify(l2_id, sub, "L2")
                 else:
                     sub.final_status = "APPROVED"
             elif action == "REWORK":
@@ -440,10 +487,29 @@ class MakerCheckerService:
             sub.l2_action_dt = now
             sub.l2_comments = action_req.comments
             if action == "APPROVED":
-                if action_req.next_approver_id:
-                    sub.l3_approver_id = action_req.next_approver_id
+                l3_id = action_req.next_approver_id
+                if not l3_id:
+                    # Auto-resolve L3 approver via assignment rules
+                    _mcs = self.status_repo.get_by_id(sub.status_id)
+                    l3_id = self.assign_svc.resolve_approver(
+                        role_code="L3_ADMIN",
+                        kri_id=_mcs.kri_id if _mcs else None,
+                    )
+                if not l3_id:
+                    # Last-resort: any active L3_ADMIN in the system
+                    from app.models import UserRoleMapping as _URM
+                    _fb = (
+                        self.db.query(AppUser)
+                        .join(_URM, _URM.user_id == AppUser.user_id)
+                        .filter(_URM.role_code == "L3_ADMIN", _URM.is_active == True, AppUser.is_active == True)
+                        .first()
+                    )
+                    if _fb:
+                        l3_id = _fb.user_id
+                if l3_id:
+                    sub.l3_approver_id = l3_id
                     sub.final_status = "L3_PENDING"
-                    self._notify(action_req.next_approver_id, sub, "L3")
+                    self._notify(l3_id, sub, "L3")
                 else:
                     sub.final_status = "APPROVED"
             elif action == "REWORK":
@@ -532,6 +598,10 @@ class MakerCheckerService:
             self.status_repo.update_status(status_obj, "REJECTED")
         elif sub.final_status == "L1_PENDING":
             self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L1", sub.l1_approver_id)
+        elif sub.final_status == "L2_PENDING":
+            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L2", sub.l2_approver_id)
+        elif sub.final_status == "L3_PENDING":
+            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L3", sub.l3_approver_id)
 
         # ── Write audit trail entry ──────────────────────────
         # Use canonical action values: SUBMITTED | L1_APPROVED | L1_REJECTED | L1_REWORK | ESCALATED | ...

@@ -7,11 +7,11 @@ import {
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon, TableChart, Approval, CloudUpload,
-  TrendingUp, Settings, PersonAdd, Menu as MenuIcon, Notifications,
+  TrendingUp, Settings, Menu as MenuIcon, Notifications,
   Logout, ChevronLeft, Assessment, Warning, Speed,
 } from '@mui/icons-material';
 import { useAppSelector, useAppDispatch, logout, setActiveRole } from '../../store';
-import { roleLabel, statusConfig, hasRole, getNavSectionsForRole } from '../../utils/helpers';
+import { roleLabel, getNavSectionsForRole } from '../../utils/helpers';
 import type { RoleCode } from '../../types';
 
 const DRAWER_WIDTH = 220;
@@ -83,12 +83,6 @@ export default function AppLayout() {
     navigate('/login');
   };
 
-  // Dashboard status chips (top bar) from screenshot
-  const topChips = [
-    { label: '20 Breached', icon: '✕', color: '#922b21' as const, bg: '#fdecea' },
-    { label: '7 Pending', icon: '⏳', color: '#b7950b' as const, bg: '#fef9e7' },
-    { label: '1 SLA Met', icon: '✓', color: '#1e8449' as const, bg: '#e8f8f0' },
-  ];
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
@@ -184,17 +178,7 @@ export default function AppLayout() {
               ))}
             </Box>
 
-            {/* ─── Status Chips ───────────────────────────── */}
-            <Box sx={{ display: { xs: 'none', lg: 'flex' }, gap: 0.5 }}>
-              {topChips.map((c) => (
-                <Chip
-                  key={c.label}
-                  label={`${c.icon} ${c.label}`}
-                  size="small"
-                  sx={{ bgcolor: c.bg, color: c.color, fontWeight: 700, fontSize: '0.7rem', border: `1px solid ${c.color}30` }}
-                />
-              ))}
-            </Box>
+
 
             {/* ─── Notifications & Avatar ─────────────────── */}
             <Tooltip title="Notifications">

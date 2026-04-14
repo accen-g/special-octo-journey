@@ -325,9 +325,13 @@ class DashboardSummary(BaseModel):
     not_started: int
     not_started_pct: float
     pending_approvals: int
+    pending_by_level: dict = {}
     regions: List[str]
     period: str
     last_updated: Optional[datetime] = None
+    mom_sla_met_pct: Optional[float] = None
+    mom_sla_breached_delta: Optional[int] = None
+    mom_period_label: Optional[str] = None
 
 
 class RAGBreakdown(BaseModel):

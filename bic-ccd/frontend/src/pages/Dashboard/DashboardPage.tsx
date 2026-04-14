@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Grid, Card, CardContent, Typography, CircularProgress } from '@mui/material';
 import { useQuery } from '@tanstack/react-query';
+import { useNavigate } from 'react-router-dom';
 import {
   PieChart, Pie, Cell, ResponsiveContainer, LineChart, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, BarChart, Bar, RadarChart, Radar,
@@ -19,6 +20,7 @@ const MGMT_COLORS = { pass: '#27ae60', fail: '#c0392b', inProgress: '#f39c12' };
 export default function DashboardPage() {
   const { selectedPeriod, selectedRegionId } = useAppSelector((s) => s.ui);
   const { user } = useAppSelector((s) => s.auth);
+  const navigate = useNavigate();
   const isManagement = hasRole(user?.roles || [], ['MANAGEMENT']);
   const params = { year: selectedPeriod.year, month: selectedPeriod.month, region_id: selectedRegionId || undefined };
 
@@ -33,8 +35,13 @@ export default function DashboardPage() {
   });
 
   const { data: trend = [] } = useQuery<TrendDataPoint[]>({
-    queryKey: ['dashboard-trend', selectedRegionId],
-    queryFn: () => dashboardApi.trend({ months: 6, region_id: selectedRegionId || undefined }).then((r) => r.data),
+    queryKey: ['dashboard-trend', selectedRegionId, selectedPeriod],
+    queryFn: () => dashboardApi.trend({
+      months: 6,
+      region_id: selectedRegionId || undefined,
+      year: selectedPeriod.year,
+      month: selectedPeriod.month,
+    }).then((r) => r.data),
   });
 
   const { data: dimBreakdown = [] } = useQuery<DimensionBreakdown[]>({
@@ -51,7 +58,55 @@ export default function DashboardPage() {
     return <Box sx={{ display: 'flex', justifyContent: 'center', pt: 8 }}><CircularProgress /></Box>;
   }
 
-  const s = summary || { total_kris: 0, sla_met: 0, sla_met_pct: 0, sla_breached: 0, sla_breached_pct: 0, not_started: 0, not_started_pct: 0, pending_approvals: 0, regions: [], period: '' };
+  const s = summary || {
+    total_kris: 0, sla_met: 0, sla_met_pct: 0, sla_breached: 0, sla_breached_pct: 0,
+    not_started: 0, not_started_pct: 0, pending_approvals: 0, pending_by_level: {},
+    regions: [], period: '', mom_sla_met_pct: undefined, mom_sla_breached_delta: undefined, mom_period_label: undefined,
+  };
+
+  // Region subtitle: show selected region code(s) from backend (already scoped)
+  const regionSubtitle = s.regions?.join(' · ') || 'All Regions';
+
+  // Pending approvals breakdown (L1/L2/L3 percentages)
+  const pendingTotal = s.pending_approvals || 0;
+  const pendingByLevel = s.pending_by_level || {};
+  const pendingBreakdown = pendingTotal > 0
+    ? Object.entries(pendingByLevel)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([level, count]) => `${level}: ${Math.round((count / pendingTotal) * 100)}%`)
+        .join(' | ')
+    : null;
+
+  // Month-over-month trend strings (dynamic from backend)
+  const momLabel = s.mom_period_label || '';
+  const momSlaMetTrend = s.mom_sla_met_pct != null
+    ? `${Math.abs(s.mom_sla_met_pct)}% vs ${momLabel}`
+    : undefined;
+  const momSlaMetDir = s.mom_sla_met_pct != null
+    ? (s.mom_sla_met_pct < 0 ? 'down' : 'up') as 'up' | 'down'
+    : undefined;
+  // Management Pass card: improvement (positive) → green → 'down' in KpiCard convention
+  const momPassDir = s.mom_sla_met_pct != null
+    ? (s.mom_sla_met_pct >= 0 ? 'down' : 'up') as 'up' | 'down'
+    : undefined;
+  const momBreachedTrend = s.mom_sla_breached_delta != null
+    ? `${s.mom_sla_breached_delta > 0 ? '+' : ''}${s.mom_sla_breached_delta} vs ${momLabel}${Math.abs(s.mom_sla_breached_delta || 0) > 2 ? ' — Critical' : ''}`
+    : undefined;
+  const momBreachedDir = s.mom_sla_breached_delta != null
+    ? (s.mom_sla_breached_delta > 0 ? 'up' : 'down') as 'up' | 'down'
+    : undefined;
+
+  // Navigate to /data-control with pre-set filters
+  const goToDataControl = (status: string) => {
+    const selectedRegion = regions.find((r) => r.region_id === selectedRegionId);
+    const qp = new URLSearchParams({
+      period_year: String(selectedPeriod.year),
+      period_month: String(selectedPeriod.month),
+      status,
+    });
+    if (selectedRegion) qp.set('region_id', String(selectedRegionId));
+    navigate(`/data-control?${qp.toString()}`);
+  };
 
   // Management sees PASS/FAIL/IN PROGRESS; others see raw SLA statuses
   const inProgressCount = (slaDist?.not_started || s.not_started) + (s.pending_approvals || 0);
@@ -94,9 +149,10 @@ export default function DashboardPage() {
           <KpiCard
             title="Total KRIs"
             value={s.total_kris}
-            subtitle={s.regions?.join(' · ')}
+            subtitle={regionSubtitle}
             detail="— Active Framework"
             borderColor="#003366"
+            onClick={() => goToDataControl('ALL')}
           />
         </Grid>
         {isManagement ? (
@@ -106,8 +162,11 @@ export default function DashboardPage() {
                 title="Pass"
                 value={s.sla_met}
                 subtitle={`${s.sla_met_pct}% of total`}
+                trend={momSlaMetTrend}
+                trendDirection={momPassDir}
                 detail="— Controls completed"
                 borderColor="#27ae60"
+                onClick={() => goToDataControl('SLA_MET')}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
@@ -115,9 +174,12 @@ export default function DashboardPage() {
                 title="Fail"
                 value={s.sla_breached}
                 subtitle={`${s.sla_breached_pct}% — Needs attention`}
-                detail="— SLA breached"
+                trend={momBreachedTrend}
+                trendDirection={momBreachedDir}
+                detail="— Controls failed"
                 borderColor="#c0392b"
                 alert
+                onClick={() => goToDataControl('BREACHED')}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
@@ -127,16 +189,18 @@ export default function DashboardPage() {
                 subtitle={`${s.not_started + s.pending_approvals} KRIs active`}
                 detail="— Pending or not started"
                 borderColor="#f39c12"
+                onClick={() => goToDataControl('NOT_STARTED')}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
               <KpiCard
                 title="Pending Approvals"
                 value={s.pending_approvals}
-                subtitle="Awaiting sign-off"
+                subtitle={pendingBreakdown || 'Awaiting sign-off'}
                 detail="— Action required"
                 borderColor="#e67e22"
                 alert
+                onClick={() => goToDataControl('PENDING_APPROVAL')}
               />
             </Grid>
           </>
@@ -147,9 +211,10 @@ export default function DashboardPage() {
                 title="SLA Met"
                 value={s.sla_met}
                 subtitle={`${s.sla_met_pct}% of total`}
-                trend={`${Math.abs(7)}% vs Feb 2026`}
-                trendDirection="down"
+                trend={momSlaMetTrend}
+                trendDirection={momSlaMetDir}
                 borderColor="#27ae60"
+                onClick={() => goToDataControl('SLA_MET')}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
@@ -157,9 +222,10 @@ export default function DashboardPage() {
                 title="SLA Breached"
                 value={s.sla_breached}
                 subtitle={`${s.sla_breached_pct}% — Data not received`}
-                trend="+3 vs Feb — Critical"
-                trendDirection="up"
+                trend={momBreachedTrend}
+                trendDirection={momBreachedDir}
                 borderColor="#c0392b"
+                onClick={() => goToDataControl('BREACHED')}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
@@ -169,16 +235,18 @@ export default function DashboardPage() {
                 subtitle={`${s.not_started_pct}% — SLA window open`}
                 detail="— Awaiting data"
                 borderColor="#95a5a6"
+                onClick={() => goToDataControl('NOT_STARTED')}
               />
             </Grid>
             <Grid item xs={12} sm={6} md={2.4}>
               <KpiCard
                 title="Pending Approvals"
                 value={s.pending_approvals}
-                subtitle="L1 approvals required"
+                subtitle={pendingBreakdown || 'Approvals required'}
                 detail="All SLA Breached KRIs"
                 borderColor="#c0392b"
                 alert
+                onClick={() => goToDataControl('PENDING_APPROVAL')}
               />
             </Grid>
           </>

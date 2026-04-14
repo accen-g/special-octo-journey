@@ -27,7 +27,12 @@ export interface DashboardSummary {
   total_kris: number; sla_met: number; sla_met_pct: number;
   sla_breached: number; sla_breached_pct: number;
   not_started: number; not_started_pct: number;
-  pending_approvals: number; regions: string[]; period: string; last_updated?: string;
+  pending_approvals: number;
+  pending_by_level: Record<string, number>;
+  regions: string[]; period: string; last_updated?: string;
+  mom_sla_met_pct?: number;
+  mom_sla_breached_delta?: number;
+  mom_period_label?: string;
 }
 
 export interface TrendDataPoint { period: string; sla_met: number; sla_breached: number; not_started: number; }

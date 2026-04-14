@@ -151,6 +151,30 @@ class UserRepository:
             q = q.filter(UserRoleMapping.region_id == region_id)
         return q.all()
 
+    def get_users_by_role_with_admin_fallback(self, role_code: str, region_id: int = None) -> List[AppUser]:
+        """Return users with the given role.  Always appends active SYSTEM_ADMIN users
+        so the caller always has at least one person to assign.  Deduplicates by user_id."""
+        role_users = self.get_users_by_role(role_code, region_id)
+
+        admin_users = (
+            self.db.query(AppUser)
+            .join(UserRoleMapping, UserRoleMapping.user_id == AppUser.user_id)
+            .filter(
+                UserRoleMapping.role_code == "SYSTEM_ADMIN",
+                UserRoleMapping.is_active == True,
+                AppUser.is_active == True,
+            )
+            .all()
+        )
+
+        seen: set = {u.user_id for u in role_users}
+        merged = list(role_users)
+        for u in admin_users:
+            if u.user_id not in seen:
+                seen.add(u.user_id)
+                merged.append(u)
+        return merged
+
 
 # ─── KRI ────────────────────────────────────────────────────
 class KriRepository:
@@ -306,13 +330,16 @@ class MonthlyStatusRepository:
         q = q.group_by(MonthlyControlStatus.rag_status)
         return {row[0]: row[1] for row in q.all()}
 
-    def get_trend_data(self, months: int = 6, region_id: int = None) -> List[dict]:
-        """Return status counts per month for last N months."""
+    def get_trend_data(self, months: int = 6, region_id: int = None,
+                       anchor_year: int = None, anchor_month: int = None) -> List[dict]:
+        """Return status counts per month for last N months ending at anchor_year/anchor_month."""
         now = datetime.utcnow()
+        base_year = anchor_year or now.year
+        base_month = anchor_month or now.month
         results = []
         for i in range(months - 1, -1, -1):
-            m = now.month - i
-            y = now.year
+            m = base_month - i
+            y = base_year
             while m <= 0:
                 m += 12
                 y -= 1
@@ -364,6 +391,21 @@ class MonthlyStatusRepository:
         if approver_id:
             q = q.filter(MonthlyControlStatus.current_approver == approver_id)
         return paginate(q, page, page_size)
+
+    def get_pending_approvals_by_level(self, year: int, month: int, region_id: int = None) -> dict:
+        """Return pending approval counts grouped by approval level (L1/L2/L3)."""
+        q = self.db.query(
+            MonthlyControlStatus.approval_level,
+            func.count(MonthlyControlStatus.status_id)
+        ).join(KriMaster).filter(
+            MonthlyControlStatus.status == "PENDING_APPROVAL",
+            MonthlyControlStatus.period_year == year,
+            MonthlyControlStatus.period_month == month,
+        )
+        if region_id:
+            q = q.filter(KriMaster.region_id == region_id)
+        q = q.group_by(MonthlyControlStatus.approval_level)
+        return {(row[0] or "L1"): row[1] for row in q.all()}
 
 
 # ─── Approval Audit ─────────────────────────────────────────

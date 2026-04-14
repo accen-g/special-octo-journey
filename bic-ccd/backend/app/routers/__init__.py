@@ -114,10 +114,13 @@ def dashboard_summary(
 def dashboard_trend(
     months: int = 6,
     region_id: Optional[int] = None,
+    year: int = Query(default=None),
+    month: int = Query(default=None),
     db: Session = Depends(get_db),
     _user: dict = Depends(require_dashboard),
 ):
-    return DashboardService(db).get_trend(months, region_id)
+    now = datetime.utcnow()
+    return DashboardService(db).get_trend(months, region_id, year or now.year, month or now.month)
 
 @dashboard_router.get("/dimension-breakdown")
 def dimension_breakdown(
@@ -517,7 +520,7 @@ def process_approval(
     db: Session = Depends(get_db),
     user: dict = Depends(require_approvals),
 ):
-    from app.models import MonthlyControlStatus, MakerCheckerSubmission
+    from app.models import MonthlyControlStatus, MakerCheckerSubmission, ControlDimensionMaster
     from app.database import SessionLocal as _SessionLocal
 
     svc = MakerCheckerService(db)
@@ -534,6 +537,15 @@ def process_approval(
             kri_id = mcs.kri_id
             year = mcs.period_year
             month = mcs.period_month
+
+            # Resolve the exact dimension_code (e.g. "DATA_PROVIDER_SLA") so
+            # the email record is stored under the same control_id that the
+            # email-trail query filters on.  Capture it as a plain string
+            # before the closure so the DB session stays out of the bg task.
+            _dim = db.query(ControlDimensionMaster).filter(
+                ControlDimensionMaster.dimension_id == mcs.dimension_id
+            ).first()
+            dimension_code: str | None = _dim.dimension_code if _dim else None
 
             # Build recipients: performing user + submitter (if email available)
             recipients: list[str] = []
@@ -558,6 +570,8 @@ def process_approval(
                 performed_by_user_id = user["user_id"]
                 now = datetime.utcnow()
 
+                action_comments = req.comments or None
+
                 def _email_bg():
                     from app.routers.audit_evidence import trigger_outbound_email_background
                     bg_db = _SessionLocal()
@@ -565,6 +579,8 @@ def process_approval(
                         trigger_outbound_email_background(
                             kri_id, year, month, action_label,
                             recipients, performed_by_user_id, bg_db,
+                            comments=action_comments,
+                            dimension_code=dimension_code,
                         )
                     finally:
                         bg_db.close()
@@ -1036,8 +1052,8 @@ def get_user_roles(user_id: int, db: Session = Depends(get_db), _user: dict = De
 
 @user_router.get("/by-role/{role_code}")
 def users_by_role(role_code: str, region_id: Optional[int] = None,
-                  db: Session = Depends(get_db), _user: dict = Depends(require_system_admin)):
-    users = UserRepository(db).get_users_by_role(role_code, region_id)
+                  db: Session = Depends(get_db), _user: dict = Depends(require_approver)):
+    users = UserRepository(db).get_users_by_role_with_admin_fallback(role_code, region_id)
     return [{"user_id": u.user_id, "soe_id": u.soe_id, "full_name": u.full_name} for u in users]
 
 

@@ -32,6 +32,7 @@ from typing import Optional
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from sqlalchemy.exc import IntegrityError
 
 from app.database import SessionLocal
 from app.config import get_settings
@@ -48,28 +49,44 @@ _LOCKED_BY = f"{socket.gethostname()}:{os.getpid()}"
 # ─── Distributed lock helpers ────────────────────────────────────────────────
 
 def _try_acquire_lock(db, job_name: str) -> bool:
-    """Return True and write lock row if the lock is free; False if held."""
+    """Return True and write lock row if the lock is free; False if held.
+
+    Uses SELECT … FOR UPDATE SKIP LOCKED to avoid blocking concurrent
+    instances.  On the very first call (no row yet) two instances could
+    both see None and race to INSERT; the IntegrityError from the losing
+    insert is caught and treated as "held by other instance".
+    """
     from app.models import SchedulerLock
 
     now = datetime.utcnow()
     lock = db.query(SchedulerLock).filter_by(job_name=job_name).with_for_update(skip_locked=True).first()
 
     if lock is None:
-        # First ever run — create the row
-        db.add(SchedulerLock(
-            job_name=job_name,
-            lock_until=now + timedelta(seconds=_LOCK_TTL_SECONDS),
-            locked_at=now,
-            locked_by=_LOCKED_BY,
-        ))
-        db.commit()
-        return True
+        # First ever run — create the row.  Guard against a concurrent
+        # insert from another instance that also saw None.
+        try:
+            db.add(SchedulerLock(
+                job_name=job_name,
+                lock_until=now + timedelta(seconds=_LOCK_TTL_SECONDS),
+                locked_at=now,
+                locked_by=_LOCKED_BY,
+                is_locked=True,
+            ))
+            db.commit()
+            return True
+        except IntegrityError:
+            db.rollback()
+            logger.debug(
+                "Skipping %s — lock row created concurrently by another instance", job_name
+            )
+            return False
 
     if lock.lock_until <= now:
         # Lock expired — steal it
         lock.lock_until = now + timedelta(seconds=_LOCK_TTL_SECONDS)
         lock.locked_at = now
         lock.locked_by = _LOCKED_BY
+        lock.is_locked = True
         db.commit()
         return True
 
@@ -79,12 +96,13 @@ def _try_acquire_lock(db, job_name: str) -> bool:
 
 
 def _release_lock(db, job_name: str) -> None:
-    """Set lock_until to the past so the next instance can acquire it."""
+    """Set lock_until to the past and clear is_locked so the next instance can acquire."""
     from app.models import SchedulerLock
 
     lock = db.query(SchedulerLock).filter_by(job_name=job_name).first()
     if lock:
         lock.lock_until = datetime.utcnow() - timedelta(seconds=1)
+        lock.is_locked = False
         db.commit()
 
 
@@ -98,9 +116,11 @@ def _run_monthly_init():
     year, month = today.year, today.month
 
     db = SessionLocal()
+    acquired = False
     try:
         if not _try_acquire_lock(db, "monthly_init"):
             return
+        acquired = True
         logger.info("Running monthly_init for %d-%02d", year, month)
         result = monthly_init(db, year, month)
         logger.info("monthly_init result: %s", result)
@@ -108,7 +128,8 @@ def _run_monthly_init():
         logger.exception("monthly_init failed")
         db.rollback()
     finally:
-        _release_lock(db, "monthly_init")
+        if acquired:
+            _release_lock(db, "monthly_init")
         db.close()
 
 
@@ -117,9 +138,11 @@ def _run_daily_timeliness():
     from app.services.verification import daily_timeliness_check
 
     db = SessionLocal()
+    acquired = False
     try:
         if not _try_acquire_lock(db, "daily_timeliness_check"):
             return
+        acquired = True
         logger.info("Running daily_timeliness_check")
         result = daily_timeliness_check(db)
         logger.info("daily_timeliness_check result: %s", result)
@@ -127,7 +150,8 @@ def _run_daily_timeliness():
         logger.exception("daily_timeliness_check failed")
         db.rollback()
     finally:
-        _release_lock(db, "daily_timeliness_check")
+        if acquired:
+            _release_lock(db, "daily_timeliness_check")
         db.close()
 
 
@@ -136,9 +160,11 @@ def _run_dcrm_processing():
     from app.services.verification import dcrm_processing
 
     db = SessionLocal()
+    acquired = False
     try:
         if not _try_acquire_lock(db, "dcrm_processing"):
             return
+        acquired = True
         logger.info("Running dcrm_processing")
         result = dcrm_processing(db)
         logger.info("dcrm_processing result: %s", result)
@@ -146,7 +172,8 @@ def _run_dcrm_processing():
         logger.exception("dcrm_processing failed")
         db.rollback()
     finally:
-        _release_lock(db, "dcrm_processing")
+        if acquired:
+            _release_lock(db, "dcrm_processing")
         db.close()
 
 
@@ -155,9 +182,11 @@ def _run_daily_notifications():
     from app.services.email import run_daily_notifications
 
     db = SessionLocal()
+    acquired = False
     try:
         if not _try_acquire_lock(db, "daily_notifications"):
             return
+        acquired = True
         logger.info("Running daily_notifications")
         result = run_daily_notifications(db)
         logger.info("daily_notifications result: %s", result)
@@ -165,7 +194,8 @@ def _run_daily_notifications():
         logger.exception("daily_notifications failed")
         db.rollback()
     finally:
-        _release_lock(db, "daily_notifications")
+        if acquired:
+            _release_lock(db, "daily_notifications")
         db.close()
 
 
@@ -228,7 +258,9 @@ def create_scheduler() -> AsyncIOScheduler:
 def trigger_monthly_init(year: Optional[int] = None, month: Optional[int] = None) -> dict:
     """Run monthly_init immediately for the given period (or current month).
 
+    Bypasses the distributed lock (intentional admin override).
     Returns the summary dict from verification.monthly_init.
+    Raises on failure after rolling back the session — no partial writes.
     """
     from app.services.verification import monthly_init
 
@@ -240,27 +272,44 @@ def trigger_monthly_init(year: Optional[int] = None, month: Optional[int] = None
     try:
         result = monthly_init(db, year, month)
         return result
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
 
 def trigger_daily_timeliness() -> dict:
-    """Run daily_timeliness_check immediately."""
+    """Run daily_timeliness_check immediately.
+
+    Bypasses the distributed lock (intentional admin override).
+    Raises on failure after rolling back the session — no partial writes.
+    """
     from app.services.verification import daily_timeliness_check
 
     db = SessionLocal()
     try:
         return daily_timeliness_check(db)
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
 
 
 def trigger_dcrm_processing() -> dict:
-    """Run dcrm_processing immediately."""
+    """Run dcrm_processing immediately.
+
+    Bypasses the distributed lock (intentional admin override).
+    Raises on failure after rolling back the session — no partial writes.
+    """
     from app.services.verification import dcrm_processing
 
     db = SessionLocal()
     try:
         return dcrm_processing(db)
+    except Exception:
+        db.rollback()
+        raise
     finally:
         db.close()
