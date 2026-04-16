@@ -90,9 +90,23 @@ class DashboardService:
         self.region_repo = RegionRepository(db)
 
     def get_summary(self, year: int, month: int, region_id: int = None) -> dict:
-        counts = self.status_repo.get_summary_counts(year, month, region_id)
-        total = sum(counts.values())        # raw count — never artificially inflated
-        pct_base = total or 1               # denominator for percentages only
+        # Previous month boundaries
+        prev_month = month - 1
+        prev_year = year
+        if prev_month <= 0:
+            prev_month += 12
+            prev_year -= 1
+
+        # Single query fetches current + previous month status counts.
+        # Previously two sequential get_summary_counts calls = 2 Oracle round-trips.
+        multi = self.status_repo.get_multi_period_summary_counts(
+            [(year, month), (prev_year, prev_month)], region_id
+        )
+        counts = multi.get((year, month), {})
+        prev_counts = multi.get((prev_year, prev_month), {})
+
+        total = sum(counts.values())
+        pct_base = total or 1
         sla_met = counts.get("COMPLETED", 0) + counts.get("APPROVED", 0)
         sla_breached = counts.get("SLA_BREACHED", 0)
         not_started = counts.get("NOT_STARTED", 0)
@@ -101,13 +115,6 @@ class DashboardService:
         # Pending approvals grouped by level
         pending_by_level = self.status_repo.get_pending_approvals_by_level(year, month, region_id)
 
-        # Month-over-month: always compare with previous calendar month
-        prev_month = month - 1
-        prev_year = year
-        if prev_month <= 0:
-            prev_month += 12
-            prev_year -= 1
-        prev_counts = self.status_repo.get_summary_counts(prev_year, prev_month, region_id)
         prev_total = sum(prev_counts.values()) or 1
         prev_sla_met = prev_counts.get("COMPLETED", 0) + prev_counts.get("APPROVED", 0)
         prev_sla_breached = prev_counts.get("SLA_BREACHED", 0)
@@ -115,7 +122,6 @@ class DashboardService:
         mom_sla_breached_delta = sla_breached - prev_sla_breached
         mom_period_label = f"{datetime(prev_year, prev_month, 1):%b %Y}"
 
-        # Return region codes scoped to the selected region (or all if no filter)
         if region_id:
             region = self.region_repo.get_by_id(region_id)
             region_codes = [region.region_code] if region else []
@@ -306,6 +312,8 @@ class MakerCheckerService:
                 kri_id=status_obj.kri_id,
             )
 
+        # Accumulate all inserts/updates in the session; commit once at the end.
+        # Previously 4 sequential commits = 4 Oracle round-trips (~800ms at 200ms RTT).
         sub = self.mc_repo.create({
             "status_id": req.status_id,
             "evidence_id": req.evidence_id,
@@ -315,9 +323,11 @@ class MakerCheckerService:
             "final_status": "L1_PENDING",
             "created_by": str(submitted_by),
             "updated_by": str(submitted_by),
-        })
+        }, autocommit=False)
 
-        self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L1", l1_approver_id)
+        self.status_repo.update_status(
+            status_obj, "PENDING_APPROVAL", "L1", l1_approver_id, autocommit=False
+        )
 
         self.audit_repo.create({
             "status_id": req.status_id,
@@ -327,7 +337,7 @@ class MakerCheckerService:
             "new_status": "PENDING_APPROVAL",
             "created_by": str(submitted_by),
             "updated_by": str(submitted_by),
-        })
+        }, autocommit=False)
 
         if l1_approver_id:
             self.notif_repo.create({
@@ -337,8 +347,10 @@ class MakerCheckerService:
                 "notification_type": "APPROVAL_REQUEST",
                 "created_by": str(submitted_by),
                 "updated_by": str(submitted_by),
-            })
+            }, autocommit=False)
 
+        self.db.commit()
+        self.db.refresh(sub)
         return sub
 
     def _resolve_escalation_target(
@@ -589,24 +601,23 @@ class MakerCheckerService:
                 )
 
         # ── Update monthly control status ────────────────────
+        # All three writes below (status + audit + submission) are deferred and
+        # committed together in mc_repo.update(), saving 2 Oracle round-trips.
         status_obj = self.status_repo.get_by_id(sub.status_id)
         if sub.final_status == "APPROVED":
-            self.status_repo.update_status(status_obj, "COMPLETED")
+            self.status_repo.update_status(status_obj, "COMPLETED", autocommit=False)
         elif sub.final_status == "REWORK":
-            self.status_repo.update_status(status_obj, "REWORK")
+            self.status_repo.update_status(status_obj, "REWORK", autocommit=False)
         elif sub.final_status == "REJECTED":
-            self.status_repo.update_status(status_obj, "REJECTED")
+            self.status_repo.update_status(status_obj, "REJECTED", autocommit=False)
         elif sub.final_status == "L1_PENDING":
-            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L1", sub.l1_approver_id)
+            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L1", sub.l1_approver_id, autocommit=False)
         elif sub.final_status == "L2_PENDING":
-            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L2", sub.l2_approver_id)
+            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L2", sub.l2_approver_id, autocommit=False)
         elif sub.final_status == "L3_PENDING":
-            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L3", sub.l3_approver_id)
+            self.status_repo.update_status(status_obj, "PENDING_APPROVAL", "L3", sub.l3_approver_id, autocommit=False)
 
         # ── Write audit trail entry ──────────────────────────
-        # Use canonical action values: SUBMITTED | L1_APPROVED | L1_REJECTED | L1_REWORK | ESCALATED | ...
-        # For ESCALATE action we already set action = "ESCALATED" above.
-        # For normal approvals/rejections we compose "L1_APPROVED" style.
         if action == "ESCALATED":
             audit_action = "ESCALATED"
         else:
@@ -621,8 +632,9 @@ class MakerCheckerService:
             "new_status": sub.final_status,
             "created_by": str(performed_by),
             "updated_by": str(performed_by),
-        })
+        }, autocommit=False)
 
+        # Single commit: flushes status update + audit trail + submission update together.
         return self.mc_repo.update(sub)
 
     def _notify(self, user_id: int, sub: MakerCheckerSubmission, level: str):
@@ -633,7 +645,7 @@ class MakerCheckerService:
             "notification_type": "APPROVAL_REQUEST",
             "created_by": "SYSTEM",
             "updated_by": "SYSTEM",
-        })
+        }, autocommit=False)
 
 
 # ─── Variance Service ──────────────────────────────────────
