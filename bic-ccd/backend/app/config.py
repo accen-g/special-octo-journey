@@ -70,6 +70,11 @@ class Settings(BaseSettings):
     # Scheduler
     SCHEDULER_ENABLED: bool = True
 
+    # Seed / mock data — set false in production to prevent any demo data insertion
+    # true  → insert demo data on first startup (idempotent, skips if already seeded)
+    # false → never insert demo data; app works with whatever data is in the DB
+    SEED_MOCK_DATA: bool = True
+
     @property
     def database_url(self) -> str:
         if self.USE_SQLITE:

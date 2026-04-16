@@ -912,13 +912,14 @@ def generate_audit_summary(
     month = payload.month
     month_label = month_name[month]
 
-    # Fetch all evidence for this KRI + period
+    # Fetch all evidence for this KRI + period (exclude unmapped)
     evidences = (
         db.query(KriEvidenceMetadata)
         .filter(
             KriEvidenceMetadata.kri_id == kri_id,
             KriEvidenceMetadata.period_year == year,
             KriEvidenceMetadata.period_month == month,
+            KriEvidenceMetadata.is_unmapped == False,
         )
         .order_by(KriEvidenceMetadata.created_dt)
         .all()
