@@ -20,7 +20,38 @@ export interface MonthlyStatus {
   status_id: number; kri_id: number; kri_code?: string; kri_name?: string;
   dimension_id: number; dimension_name?: string; period_year: number; period_month: number;
   status: ControlStatus; rag_status?: RAGStatus; sla_due_dt?: string; sla_met?: boolean;
-  approval_level?: string; region_name?: string; category_name?: string;
+  approval_level?: string; region_name?: string; region_id?: number;
+  category_name?: string; dimension_code?: string;
+  /** Active MakerCheckerSubmission.submission_id when approval_level === 'L3'. */
+  submission_id?: number;
+}
+
+/** Request body for POST /api/data-control/{id}/l3-override */
+export interface L3OverrideRequest {
+  dimension_code: string;
+  new_status: string;
+  comment: string;
+  evidence_file_id?: number;
+}
+
+/** Response from POST /api/data-control/{id}/l3-override */
+export interface L3OverrideResponse {
+  status_id: number;
+  kri_id: number;
+  dimension_id: number;
+  period_year: number;
+  period_month: number;
+  status: ControlStatus;
+  rag_status?: RAGStatus;
+  sla_due_dt?: string;
+  sla_met?: boolean;
+  completed_dt?: string;
+  approval_level?: string;
+  kri_code?: string;
+  kri_name?: string;
+  dimension_name?: string;
+  region_name?: string;
+  region_id?: number;
 }
 
 export interface DashboardSummary {
