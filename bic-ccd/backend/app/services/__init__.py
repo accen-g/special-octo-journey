@@ -22,7 +22,11 @@ from app.schemas import (
     MakerCheckerSubmitRequest, MakerCheckerActionRequest,
     VarianceSubmitRequest, ApprovalActionRequest, CommentCreate,
 )
-from app.models import MakerCheckerSubmission, AppUser
+from app.models import (
+    MakerCheckerSubmission, AppUser,
+    ApprovalAuditTrail, KriComment, EvidenceMetadata,
+    MonthlyControlStatus, ControlDimensionMaster,
+)
 from app.utils import compute_pending_with
 
 
@@ -929,3 +933,4 @@ class EvidenceService:
             raise HTTPException(404, "Evidence not found")
         self.ev_repo.lock(ev, locked_by)
         return ev
+

@@ -7,7 +7,7 @@ from sqlalchemy import desc
 import os, uuid
 
 from app.database import get_db
-from app.models import ApprovalAuditTrail, AppUser
+from app.models import ApprovalAuditTrail, AppUser, MakerCheckerSubmission
 from app.utils import compute_pending_with
 from app.middleware import (
     get_current_user, create_access_token,
@@ -273,8 +273,31 @@ def list_controls(
             "sla_due_dt": s.sla_due_dt, "sla_met": s.sla_met,
             "approval_level": s.approval_level,
             "region_name": kri.region.region_name if kri and kri.region else None,
+            "region_id": kri.region_id if kri else None,
             "category_name": kri.category.category_name if kri and kri.category else None,
+            "dimension_code": dim.dimension_code if dim else None,
         })
+
+    # Batch-lookup active submission_id for L3_PENDING cells (avoids N+1)
+    l3_status_ids = [
+        r["status_id"] for r in results
+        if r["status"] == "PENDING_APPROVAL" and r.get("approval_level") == "L3"
+    ]
+    sub_id_map: dict = {}
+    if l3_status_ids:
+        subs = (
+            db.query(MakerCheckerSubmission.status_id, MakerCheckerSubmission.submission_id)
+            .filter(
+                MakerCheckerSubmission.status_id.in_(l3_status_ids),
+                MakerCheckerSubmission.final_status == "L3_PENDING",
+            )
+            .all()
+        )
+        for sid, submission_id in subs:
+            sub_id_map[sid] = submission_id
+    for r in results:
+        r["submission_id"] = sub_id_map.get(r["status_id"])
+
     return {"items": results, "total": total, "page": page, "page_size": page_size}
 
 @control_router.get("/{status_id}")
