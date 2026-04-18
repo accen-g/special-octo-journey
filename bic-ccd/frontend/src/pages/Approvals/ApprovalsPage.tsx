@@ -198,7 +198,7 @@ export default function ApprovalsPage() {
 
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
   const [actionDialog, setActionDialog] = useState<{
-    open: boolean; submissionId: number | null; action: string;
+    open: boolean; submissionId: number | null; action: string; item?: any;
   }>({ open: false, submissionId: null, action: '' });
   const [comments, setComments] = useState('');
   const [commentsTouched, setCommentsTouched] = useState(false);
@@ -586,7 +586,11 @@ export default function ApprovalsPage() {
                                     <Tooltip title="Approve">
                                       <IconButton
                                         size="small" color="success" aria-label="Approve"
-                                        onClick={() => setActionDialog({ open: true, submissionId: item.submission_id, action: 'APPROVED' })}
+                                        onClick={() => {
+                                          const preselected = level === 'L1' ? (item.l2_approver_id || null) : level === 'L2' ? (item.l3_approver_id || null) : null;
+                                          setNextApproverId(preselected);
+                                          setActionDialog({ open: true, submissionId: item.submission_id, action: 'APPROVED', item });
+                                        }}
                                         sx={{ border: '1px solid', borderColor: 'success.light', borderRadius: 1.5, p: 0.5 }}
                                       >
                                         <CheckCircle fontSize="small" />
@@ -595,7 +599,7 @@ export default function ApprovalsPage() {
                                     <Tooltip title="Send for Rework">
                                       <IconButton
                                         size="small" color="warning" aria-label="Rework"
-                                        onClick={() => setActionDialog({ open: true, submissionId: item.submission_id, action: 'REWORK' })}
+                                        onClick={() => { setNextApproverId(null); setActionDialog({ open: true, submissionId: item.submission_id, action: 'REWORK', item }); }}
                                         sx={{ border: '1px solid', borderColor: 'warning.light', borderRadius: 1.5, p: 0.5 }}
                                       >
                                         <Replay fontSize="small" />
@@ -604,7 +608,7 @@ export default function ApprovalsPage() {
                                     <Tooltip title="Reject">
                                       <IconButton
                                         size="small" color="error" aria-label="Reject"
-                                        onClick={() => setActionDialog({ open: true, submissionId: item.submission_id, action: 'REJECTED' })}
+                                        onClick={() => { setNextApproverId(null); setActionDialog({ open: true, submissionId: item.submission_id, action: 'REJECTED', item }); }}
                                         sx={{ border: '1px solid', borderColor: 'error.light', borderRadius: 1.5, p: 0.5 }}
                                       >
                                         <Cancel fontSize="small" />
@@ -616,7 +620,7 @@ export default function ApprovalsPage() {
                                   <Tooltip title="Escalate">
                                     <IconButton
                                       size="small" color="info" aria-label="Escalate"
-                                      onClick={() => setActionDialog({ open: true, submissionId: item.submission_id, action: 'ESCALATE' })}
+                                      onClick={() => { setNextApproverId(null); setActionDialog({ open: true, submissionId: item.submission_id, action: 'ESCALATE', item }); }}
                                       sx={{ border: '1px solid', borderColor: 'info.light', borderRadius: 1.5, p: 0.5 }}
                                     >
                                       <ArrowForward fontSize="small" />
@@ -923,7 +927,9 @@ export default function ApprovalsPage() {
         open={actionDialog.open}
         onClose={() => {
           setActionDialog({ open: false, submissionId: null, action: '' });
+          setComments('');
           setCommentsTouched(false);
+          setNextApproverId(null);
         }}
         maxWidth="sm" fullWidth
       >
@@ -947,21 +953,49 @@ export default function ApprovalsPage() {
             }
             placeholder="Required: describe the reason for this action..."
           />
-          {actionDialog.action === 'APPROVED' && nextApprovers.length > 0 && (
-            <FormControl fullWidth sx={{ mt: 1 }}>
-              <InputLabel>Forward to next approver</InputLabel>
+
+          {/* ── APPROVED: L1 / L2 must select the next approver ── */}
+          {actionDialog.action === 'APPROVED' && level !== 'L3' && (
+            <FormControl fullWidth required sx={{ mt: 1 }} error={!nextApproverId}>
+              <InputLabel error={!nextApproverId}>
+                Assign to {level === 'L1' ? 'L2' : 'L3'} Approver *
+              </InputLabel>
               <Select
                 value={nextApproverId || ''}
-                label="Forward to next approver"
+                label={`Assign to ${level === 'L1' ? 'L2' : 'L3'} Approver *`}
                 onChange={(e) => setNextApproverId(Number(e.target.value))}
+                error={!nextApproverId}
               >
-                <MenuItem value="">— No further approval needed —</MenuItem>
                 {nextApprovers.map((u: any) => (
                   <MenuItem key={u.user_id} value={u.user_id}>{u.full_name} ({u.soe_id})</MenuItem>
                 ))}
               </Select>
+              {!nextApproverId && (
+                <Typography variant="caption" color="error" sx={{ mt: 0.5 }}>
+                  Required: select who this submission is forwarded to for {level === 'L1' ? 'L2' : 'L3'} review
+                </Typography>
+              )}
             </FormControl>
           )}
+          {actionDialog.action === 'APPROVED' && level === 'L3' && (
+            <Alert severity="info" sx={{ mt: 1 }}>
+              L3 is the final approval level. Confirming will fully approve this submission — no further assignment is required.
+            </Alert>
+          )}
+
+          {/* ── REWORK: informational only — routing is fixed by business rules ── */}
+          {actionDialog.action === 'REWORK' && (
+            <Alert severity="warning" sx={{ mt: 1 }}>
+              {level === 'L1'
+                ? 'This will be marked for rework. The data submitter will need to correct the data and resubmit.'
+                : level === 'L2'
+                  ? `This will be sent back to L1 for re-review. L1 Approver: ${actionDialog.item?.l1_approver_name || 'the assigned L1 approver'}.`
+                  : `This will reset the full approval chain to L1. L1 Approver: ${actionDialog.item?.l1_approver_name || 'the assigned L1 approver'} will need to re-review after data correction.`
+              }
+            </Alert>
+          )}
+
+          {/* ── ESCALATE: select target approver (required) ── */}
           {actionDialog.action === 'ESCALATE' && nextApprovers.length > 0 && (
             <FormControl fullWidth required sx={{ mt: 1 }}>
               <InputLabel error={!nextApproverId}>Escalate to (required) *</InputLabel>
@@ -991,7 +1025,9 @@ export default function ApprovalsPage() {
         <DialogActions>
           <Button onClick={() => {
             setActionDialog({ open: false, submissionId: null, action: '' });
+            setComments('');
             setCommentsTouched(false);
+            setNextApproverId(null);
           }}>Cancel</Button>
           <Button
             variant="contained"
@@ -1004,6 +1040,7 @@ export default function ApprovalsPage() {
             disabled={
               actionMutation.isPending ||
               !comments.trim() ||
+              (actionDialog.action === 'APPROVED' && level !== 'L3' && !nextApproverId) ||
               (actionDialog.action === 'ESCALATE' && nextApprovers.length > 0 && !nextApproverId)
             }
             onClick={() => {

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import {
   Box, Card, CardContent, Typography, Tabs, Tab, Chip, IconButton,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -8,14 +8,24 @@ import {
 } from '@mui/material';
 import { Comment, Visibility, ViewList, Apps } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { controlApi, lookupApi } from '../../api/client';
-import { useAppSelector } from '../../store';
+import { useAppSelector, useAppDispatch, setPeriod, setRegion } from '../../store';
 import StatusBadge from '../../components/common/StatusBadge';
 import FilterBar from '../../components/common/FilterBar';
 import GlobalFilterToolbar from '../../components/common/GlobalFilterToolbar';
 import TableHeaderFilters from '../../components/common/TableHeaderFilters';
 import { hasRole } from '../../utils/helpers';
 import type { MonthlyStatus, Dimension, Region } from '../../types';
+
+// Map dashboard card status keys to control filter values
+const DASHBOARD_STATUS_MAP: Record<string, string> = {
+  SLA_MET: 'COMPLETED',
+  BREACHED: 'SLA_BREACHED',
+  NOT_STARTED: 'NOT_STARTED',
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  ALL: '',
+};
 
 type ViewMode = 'controls' | 'kris';
 
@@ -79,12 +89,38 @@ const ROW_BORDER = { borderBottom: '1px solid rgba(0,0,0,0.08)' };
 export default function DataControlPage() {
   const { selectedPeriod, selectedRegionId } = useAppSelector((s) => s.ui);
   const { user } = useAppSelector((s) => s.auth);
+  const dispatch = useAppDispatch();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(0);
   const [page, setPage] = useState(1);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<MonthlyStatus | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('controls');
+
+  // Apply query params from dashboard card navigation (runs once on mount)
+  useEffect(() => {
+    const qpStatus = searchParams.get('status');
+    const qpYear = searchParams.get('period_year');
+    const qpMonth = searchParams.get('period_month');
+    const qpRegionId = searchParams.get('region_id');
+
+    if (qpStatus) {
+      const mapped = DASHBOARD_STATUS_MAP[qpStatus] ?? '';
+      setStatusFilter(mapped);
+    }
+    if (qpYear && qpMonth) {
+      dispatch(setPeriod({ year: Number(qpYear), month: Number(qpMonth) }));
+    }
+    if (qpRegionId) {
+      dispatch(setRegion(Number(qpRegionId)));
+    }
+    // Clear query params after consuming them so refreshing doesn't re-apply
+    if (qpStatus || qpYear || qpMonth || qpRegionId) {
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Control View inline column filters
   const [controlFilters, setControlFilters] = useState({
