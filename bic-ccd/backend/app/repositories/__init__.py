@@ -571,12 +571,32 @@ class MakerCheckerRepository:
                                   year: int = None, month: int = None, region_id: int = None):
         """Return pending items for this approver.
         Pool-based: shows submissions assigned to this user OR unassigned (NULL approver_id).
+        Guard: only return the LATEST submission per status_id to avoid orphaned duplicates (Bug 1).
         """
+        from sqlalchemy import func
+
+        # Subquery: get the latest submission_id per status_id
+        latest_sub = (
+            self.db.query(
+                func.max(MakerCheckerSubmission.submission_id).label("max_submission_id"),
+                MakerCheckerSubmission.status_id,
+            )
+            .group_by(MakerCheckerSubmission.status_id)
+            .subquery()
+        )
+
         q = self.db.query(MakerCheckerSubmission).options(
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri).joinedload(KriMaster.region),
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.dimension),
             joinedload(MakerCheckerSubmission.submitter),
+        ).join(
+            latest_sub,
+            and_(
+                MakerCheckerSubmission.submission_id == latest_sub.c.max_submission_id,
+                MakerCheckerSubmission.status_id == latest_sub.c.status_id,
+            )
         )
+
         if level == "L1":
             q = q.filter(
                 or_(
@@ -614,11 +634,31 @@ class MakerCheckerRepository:
 
     def get_all_pending(self, level: str = None, page: int = 1, page_size: int = 50,
                         year: int = None, month: int = None, region_id: int = None):
-        """L3 Admin view: see ALL pending items across all levels."""
+        """L3 Admin view: see ALL pending items across all levels.
+        Guard: only return the LATEST submission per status_id to avoid orphaned duplicates (Bug 1).
+        """
+        from sqlalchemy import func
+
+        # Subquery: get the latest submission_id per status_id
+        latest_sub = (
+            self.db.query(
+                func.max(MakerCheckerSubmission.submission_id).label("max_submission_id"),
+                MakerCheckerSubmission.status_id,
+            )
+            .group_by(MakerCheckerSubmission.status_id)
+            .subquery()
+        )
+
         q = self.db.query(MakerCheckerSubmission).options(
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri).joinedload(KriMaster.region),
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.dimension),
             joinedload(MakerCheckerSubmission.submitter),
+        ).join(
+            latest_sub,
+            and_(
+                MakerCheckerSubmission.submission_id == latest_sub.c.max_submission_id,
+                MakerCheckerSubmission.status_id == latest_sub.c.status_id,
+            )
         ).filter(
             MakerCheckerSubmission.final_status.in_(["L1_PENDING", "L2_PENDING", "L3_PENDING", "PENDING"])
         )

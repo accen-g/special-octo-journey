@@ -658,6 +658,7 @@ class AuditEvidenceKriRow(BaseModel):
     control_name: Optional[str] = None      # dimension_name e.g. "Timeliness"
     data_provider_name: Optional[str] = None
     status: str
+    maker_checker_status: Optional[str] = None   # latest MakerCheckerSubmission.final_status
     evidence_count: int = 0
     period_year: int
     period_month: int
@@ -691,3 +692,5 @@ class OutboundEmailRequest(BaseModel):
 class GenerateSummaryRequest(BaseModel):
     year: int
     month: int
+    control_code: Optional[str] = None  # dimension_code — scopes evidence to this control only
+

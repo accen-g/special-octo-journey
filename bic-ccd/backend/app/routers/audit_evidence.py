@@ -42,6 +42,7 @@ from app.models import (
     AppUser, KriApprovalLog, KriAuditSummary, KriBluesheet,
     KriEmailIteration, KriEvidenceMetadata, KriMaster, RegionMaster,
     MonthlyControlStatus, KriConfiguration, ControlDimensionMaster,
+    MakerCheckerSubmission,
 )
 from app.schemas import (
     AuditEvidenceItem, AuditEvidenceKriRow, AuditSummaryResponse,
@@ -688,6 +689,26 @@ def list_kris_with_evidence(
         .all()
     }
 
+    # 5b ── Check if ANY submission for this kri_id+period is APPROVED.
+    #        Mirrors the backend generate-summary gate exactly: one APPROVED dimension
+    #        is sufficient to allow summary generation for the whole KRI.
+    approved_kri_ids = {
+        row.kri_id
+        for row in (
+            db.query(MonthlyControlStatus.kri_id)
+            .join(MakerCheckerSubmission, MakerCheckerSubmission.status_id == MonthlyControlStatus.status_id)
+            .filter(
+                MonthlyControlStatus.period_year == year,
+                MonthlyControlStatus.period_month == month,
+                MonthlyControlStatus.kri_id.in_(kri_ids),
+                MakerCheckerSubmission.final_status == "APPROVED",
+            )
+            .distinct()
+            .all()
+        )
+    }
+    mc_status_map: dict[int, str] = {kri_id: "APPROVED" for kri_id in approved_kri_ids}
+
     # 6 ── Build one row per KRI × Control
     rows = []
     for cfg, dim in configs:
@@ -714,6 +735,7 @@ def list_kris_with_evidence(
                 control_name=dim.dimension_name,
                 data_provider_name=bs.data_provider_name if bs else None,
                 status=ctrl_status,
+                maker_checker_status=mc_status_map.get(kri.kri_id),
                 evidence_count=ev_cnt,
                 period_year=year,
                 period_month=month,
@@ -1169,17 +1191,40 @@ def generate_audit_summary(
     month = payload.month
     month_label = month_name[month]
 
-    # Fetch all evidence for this KRI + period
-    evidences = (
+    # Gate: only allow generation after final L3 approval.
+    # Joins MakerCheckerSubmission → MonthlyControlStatus to find an APPROVED
+    # submission for this KRI + period. Role check alone (require_l3) is insufficient.
+    approved_sub = (
+        db.query(MakerCheckerSubmission)
+        .join(MonthlyControlStatus, MakerCheckerSubmission.status_id == MonthlyControlStatus.status_id)
+        .filter(
+            MonthlyControlStatus.kri_id == kri_id,
+            MonthlyControlStatus.period_year == year,
+            MonthlyControlStatus.period_month == month,
+            MakerCheckerSubmission.final_status == "APPROVED",
+        )
+        .first()
+    )
+    if not approved_sub:
+        raise HTTPException(
+            status_code=403,
+            detail="Audit summary can only be generated after the record has reached final L3 approval.",
+        )
+
+    # Fetch evidence for this KRI + period, scoped to the dimension when provided.
+    # control_code (dimension_code string, e.g. "VARIANCE_ANALYSIS") must match
+    # what the frontend Evidence modal uses so counts are identical.
+    ev_q = (
         db.query(KriEvidenceMetadata)
         .filter(
             KriEvidenceMetadata.kri_id == kri_id,
             KriEvidenceMetadata.period_year == year,
             KriEvidenceMetadata.period_month == month,
         )
-        .order_by(KriEvidenceMetadata.created_dt)
-        .all()
     )
+    if payload.control_code:
+        ev_q = ev_q.filter(KriEvidenceMetadata.control_id == payload.control_code)
+    evidences = ev_q.order_by(KriEvidenceMetadata.created_dt).all()
 
     # Fetch approval log
     approval_logs = (
@@ -1192,17 +1237,10 @@ def generate_audit_summary(
     # Bluesheet
     bs = db.query(KriBluesheet).filter(KriBluesheet.kri_id == kri_id).first()
 
-    # Iteration count
-    iter_row = (
-        db.query(KriEmailIteration)
-        .filter(
-            KriEmailIteration.kri_id == kri_id,
-            KriEmailIteration.period_year == year,
-            KriEmailIteration.period_month == month,
-        )
-        .first()
-    )
-    total_iterations = iter_row.current_iter if iter_row else 0
+    # Iteration count: distinct iteration IDs present in the dimension-filtered evidence.
+    # KriEmailIteration.current_iter is a global ever-incrementing counter (not dimension-scoped)
+    # and does not match what the Evidence modal displays — use the filtered set instead.
+    total_iterations = len({e.iteration for e in evidences if e.iteration is not None})
 
     total_evidences = len(evidences)
     total_emails = sum(1 for e in evidences if e.evidence_type == "email")
@@ -1380,7 +1418,7 @@ def generate_audit_summary(
         generated_dt=generated_dt,
         generated_by=current_user["user_id"],
         l3_approver_name=l3_approver_name,
-        final_status=bs.approval_status if bs else "APPROVED",
+        final_status=approved_sub.final_status,  # sourced from maker-checker, not bluesheet onboarding
         total_iterations=total_iterations,
         total_evidences=total_evidences,
         total_emails=total_emails,

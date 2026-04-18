@@ -316,6 +316,26 @@ class MakerCheckerService:
                 kri_id=status_obj.kri_id,
             )
 
+        # Guard: reject double-submits for the same status_id.
+        # Without this, a second submit() call creates a second row that can
+        # never advance past L1_PENDING, causing Bug 1 (phantom queue entry).
+        existing_active = (
+            self.db.query(MakerCheckerSubmission)
+            .filter(
+                MakerCheckerSubmission.status_id == req.status_id,
+                MakerCheckerSubmission.final_status.notin_(["APPROVED", "REJECTED"]),
+            )
+            .first()
+        )
+        if existing_active:
+            raise HTTPException(
+                409,
+                f"An active submission already exists for this control "
+                f"(submission #{existing_active.submission_id}, "
+                f"status: {existing_active.final_status}). "
+                "Please wait for the current submission to be approved or rejected."
+            )
+
         # Accumulate all inserts/updates in the session; commit once at the end.
         # Previously 4 sequential commits = 4 Oracle round-trips (~800ms at 200ms RTT).
         sub = self.mc_repo.create({
@@ -476,7 +496,11 @@ class MakerCheckerService:
                 else:
                     sub.final_status = "APPROVED"
             elif action == "REWORK":
-                sub.final_status = "REWORK"
+                # L1 owns rework responsibility — reassign back to L1
+                sub.l1_action = "REWORK"
+                sub.final_status = "L1_PENDING"
+                if sub.l1_approver_id:
+                    self._notify(sub.l1_approver_id, sub, "L1")
             elif action == "REJECTED":
                 sub.final_status = "REJECTED"
             elif action == "ESCALATE":
@@ -529,12 +553,18 @@ class MakerCheckerService:
                 else:
                     sub.final_status = "APPROVED"
             elif action == "REWORK":
-                sub.final_status = "REWORK"
+                # L1 owns rework responsibility — reset L1 chain and reassign back
+                sub.l2_action = "REWORK"
+                sub.l1_action = None
+                sub.l1_action_dt = None
+                sub.final_status = "L1_PENDING"
+                if sub.l1_approver_id:
+                    self._notify(sub.l1_approver_id, sub, "L1")
             elif action == "REJECTED":
                 sub.l2_action = "REJECTED"
                 sub.l1_action = None
                 sub.l1_action_dt = None
-                sub.final_status = "L1_PENDING"
+                sub.final_status = "REJECTED"  # terminal — must not re-enter queue
                 if sub.l1_approver_id:
                     self._notify(sub.l1_approver_id, sub, "L1")
             elif action == "ESCALATE":
@@ -577,7 +607,7 @@ class MakerCheckerService:
                 sub.l2_action_dt = None
                 sub.l1_action = None
                 sub.l1_action_dt = None
-                sub.final_status = "L1_PENDING"
+                sub.final_status = "REJECTED"  # terminal — must not re-enter queue
                 if sub.l1_approver_id:
                     self._notify(sub.l1_approver_id, sub, "L1")
             elif action == "ESCALATE":

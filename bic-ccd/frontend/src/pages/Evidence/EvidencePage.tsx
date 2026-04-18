@@ -270,13 +270,17 @@ interface ViewEvidenceModalProps {
   controlName?: string;   // for display
   periodYear: number;
   periodMonth: number;
+  approvalStatus?: string; // MonthlyControlStatus.status — gates audit summary generation
 }
 
-function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, controlCode, controlName, periodYear, periodMonth }: ViewEvidenceModalProps) {
+function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, controlCode, controlName, periodYear, periodMonth, approvalStatus }: ViewEvidenceModalProps) {
   const queryClient = useQueryClient();
   const [tab, setTab] = useState<'all' | 'email' | 'audit'>('all');
   const { user } = useAppSelector((s) => s.auth);
   const isL3 = user?.roles?.some(r => r.role_code === 'L3_ADMIN' || r.role_code === 'SYSTEM_ADMIN') ?? false;
+
+  // DEBUG — remove after confirming regenerate button fix
+  console.log('[EvidenceModal] kriCode:', kriCode, '| isL3:', isL3, '| approvalStatus:', approvalStatus, '| showRegenerate:', isL3 && approvalStatus === 'APPROVED');
 
   const { data: evidences = [], isLoading } = useQuery<AuditEvidenceItem[]>({
     queryKey: ['audit-evidence', kriId, periodYear, periodMonth, controlCode],
@@ -299,7 +303,7 @@ function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, controlCode
   });
 
   const generateMutation = useMutation({
-    mutationFn: () => auditEvidenceApi.generateSummary(kriId!, { year: periodYear, month: periodMonth }),
+    mutationFn: () => auditEvidenceApi.generateSummary(kriId!, { year: periodYear, month: periodMonth, control_code: controlCode }),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['audit-summary', kriId, periodYear, periodMonth] });
     },
@@ -508,7 +512,7 @@ function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, controlCode
                         </Box>
                       </Grid>
                     </Grid>
-                    <Box sx={{ mt: 2 }}>
+                    <Box sx={{ mt: 2, display: 'flex', gap: 1 }}>
                       <Button
                         variant="outlined"
                         startIcon={<Download />}
@@ -516,6 +520,17 @@ function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, controlCode
                       >
                         Download summary.html
                       </Button>
+                      {isL3 && approvalStatus === 'APPROVED' && (
+                        <Button
+                          variant="outlined"
+                          color="warning"
+                          startIcon={generateMutation.isPending ? <CircularProgress size={14} /> : <Assignment />}
+                          onClick={() => generateMutation.mutate()}
+                          disabled={generateMutation.isPending}
+                        >
+                          {generateMutation.isPending ? 'Regenerating…' : 'Regenerate Summary'}
+                        </Button>
+                      )}
                     </Box>
                   </Box>
                 ) : (
@@ -523,7 +538,7 @@ function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, controlCode
                     <Alert severity="info" sx={{ mb: 2 }}>
                       No audit summary generated yet for this period.
                     </Alert>
-                    {isL3 && (
+                    {isL3 && approvalStatus === 'APPROVED' && (
                       <Button
                         variant="contained"
                         startIcon={generateMutation.isPending ? <CircularProgress size={14} /> : <Assignment />}
@@ -532,6 +547,11 @@ function ViewEvidenceModal({ open, onClose, kriId, kriCode, kriName, controlCode
                       >
                         {generateMutation.isPending ? 'Generating…' : 'Generate Audit Summary'}
                       </Button>
+                    )}
+                    {isL3 && approvalStatus !== 'APPROVED' && (
+                      <Typography variant="body2" color="text.secondary">
+                        Audit summary can only be generated after final L3 approval.
+                      </Typography>
                     )}
                     {!isL3 && (
                       <Typography variant="body2" color="text.secondary">
@@ -855,6 +875,7 @@ export default function EvidencePage() {
           controlName={viewKri.control_name}
           periodYear={viewKri.period_year}
           periodMonth={viewKri.period_month}
+          approvalStatus={viewKri.maker_checker_status}
         />
       )}
     </Box>

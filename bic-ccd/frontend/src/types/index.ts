@@ -147,6 +147,7 @@ export interface AuditEvidenceKriRow {
   control_name?: string;      // dimension_name e.g. "Timeliness"
   data_provider_name?: string;
   status: string;
+  maker_checker_status?: string;  // latest MakerCheckerSubmission.final_status
   evidence_count: number;
   period_year: number;
   period_month: number;
