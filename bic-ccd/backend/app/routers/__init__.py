@@ -7,7 +7,7 @@ from sqlalchemy import desc
 import os, uuid
 
 from app.database import get_db
-from app.models import ApprovalAuditTrail, AppUser
+from app.models import ApprovalAuditTrail, AppUser, MakerCheckerSubmission
 from app.utils import compute_pending_with
 from app.middleware import (
     get_current_user, create_access_token,
@@ -58,7 +58,13 @@ auth_router = APIRouter(prefix="/api/auth", tags=["Authentication"])
 def login(req: LoginRequest, db: Session = Depends(get_db)):
     svc = AuthService(db)
     user_data = svc.authenticate(req.soe_id, req.password)
-    token = create_access_token({"soe_id": user_data["soe_id"], "user_id": user_data["user_id"]})
+    token = create_access_token({
+        "soe_id": user_data["soe_id"],
+        "user_id": user_data["user_id"],
+        "roles": user_data["roles"],
+        "full_name": user_data["full_name"],
+        "email": user_data["email"],
+    })
     return {"access_token": token, "token_type": "bearer", "user": user_data}
 
 @auth_router.get("/me")
@@ -114,10 +120,13 @@ def dashboard_summary(
 def dashboard_trend(
     months: int = 6,
     region_id: Optional[int] = None,
+    year: int = Query(default=None),
+    month: int = Query(default=None),
     db: Session = Depends(get_db),
     _user: dict = Depends(require_dashboard),
 ):
-    return DashboardService(db).get_trend(months, region_id)
+    now = datetime.utcnow()
+    return DashboardService(db).get_trend(months, region_id, year or now.year, month or now.month)
 
 @dashboard_router.get("/dimension-breakdown")
 def dimension_breakdown(
@@ -264,8 +273,31 @@ def list_controls(
             "sla_due_dt": s.sla_due_dt, "sla_met": s.sla_met,
             "approval_level": s.approval_level,
             "region_name": kri.region.region_name if kri and kri.region else None,
+            "region_id": kri.region_id if kri else None,
             "category_name": kri.category.category_name if kri and kri.category else None,
+            "dimension_code": dim.dimension_code if dim else None,
         })
+
+    # Batch-lookup active submission_id for L3_PENDING cells (avoids N+1)
+    l3_status_ids = [
+        r["status_id"] for r in results
+        if r["status"] == "PENDING_APPROVAL" and r.get("approval_level") == "L3"
+    ]
+    sub_id_map: dict = {}
+    if l3_status_ids:
+        subs = (
+            db.query(MakerCheckerSubmission.status_id, MakerCheckerSubmission.submission_id)
+            .filter(
+                MakerCheckerSubmission.status_id.in_(l3_status_ids),
+                MakerCheckerSubmission.final_status == "L3_PENDING",
+            )
+            .all()
+        )
+        for sid, submission_id in subs:
+            sub_id_map[sid] = submission_id
+    for r in results:
+        r["submission_id"] = sub_id_map.get(r["status_id"])
+
     return {"items": results, "total": total, "page": page, "page_size": page_size}
 
 @control_router.get("/{status_id}")
@@ -517,7 +549,7 @@ def process_approval(
     db: Session = Depends(get_db),
     user: dict = Depends(require_approvals),
 ):
-    from app.models import MonthlyControlStatus, MakerCheckerSubmission
+    from app.models import MonthlyControlStatus, MakerCheckerSubmission, ControlDimensionMaster
     from app.database import SessionLocal as _SessionLocal
 
     svc = MakerCheckerService(db)
@@ -534,6 +566,15 @@ def process_approval(
             kri_id = mcs.kri_id
             year = mcs.period_year
             month = mcs.period_month
+
+            # Resolve the exact dimension_code (e.g. "DATA_PROVIDER_SLA") so
+            # the email record is stored under the same control_id that the
+            # email-trail query filters on.  Capture it as a plain string
+            # before the closure so the DB session stays out of the bg task.
+            _dim = db.query(ControlDimensionMaster).filter(
+                ControlDimensionMaster.dimension_id == mcs.dimension_id
+            ).first()
+            dimension_code: str | None = _dim.dimension_code if _dim else None
 
             # Build recipients: performing user + submitter (if email available)
             recipients: list[str] = []
@@ -558,6 +599,8 @@ def process_approval(
                 performed_by_user_id = user["user_id"]
                 now = datetime.utcnow()
 
+                action_comments = req.comments or None
+
                 def _email_bg():
                     from app.routers.audit_evidence import trigger_outbound_email_background
                     bg_db = _SessionLocal()
@@ -565,6 +608,8 @@ def process_approval(
                         trigger_outbound_email_background(
                             kri_id, year, month, action_label,
                             recipients, performed_by_user_id, bg_db,
+                            comments=action_comments,
+                            dimension_code=dimension_code,
                         )
                     finally:
                         bg_db.close()
@@ -1036,8 +1081,8 @@ def get_user_roles(user_id: int, db: Session = Depends(get_db), _user: dict = De
 
 @user_router.get("/by-role/{role_code}")
 def users_by_role(role_code: str, region_id: Optional[int] = None,
-                  db: Session = Depends(get_db), _user: dict = Depends(require_system_admin)):
-    users = UserRepository(db).get_users_by_role(role_code, region_id)
+                  db: Session = Depends(get_db), _user: dict = Depends(require_approver)):
+    users = UserRepository(db).get_users_by_role_with_admin_fallback(role_code, region_id)
     return [{"user_id": u.user_id, "soe_id": u.soe_id, "full_name": u.full_name} for u in users]
 
 

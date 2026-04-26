@@ -178,7 +178,7 @@ export const auditEvidenceApi = {
     api.get(`/audit-evidence/${kriId}/presigned-url/${evidenceId}`),
   getSummary: (kriId: number, params?: { year?: number; month?: number }) =>
     api.get(`/audit-evidence/${kriId}/summary`, { params }),
-  generateSummary: (kriId: number, data: { year: number; month: number }) =>
+  generateSummary: (kriId: number, data: { year: number; month: number; control_code?: string }) =>
     api.post(`/audit-evidence/${kriId}/generate-summary`, data),
   sendOutboundEmail: (data: {
     kri_id: number; year: number; month: number; action: string;

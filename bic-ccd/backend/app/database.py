@@ -12,6 +12,9 @@ else:
     engine_kwargs["pool_size"] = settings.DB_POOL_MAX
     engine_kwargs["pool_pre_ping"] = True
     engine_kwargs["max_overflow"] = 5
+    # Recycle connections after 30 min so Oracle doesn't kill idle sessions
+    # before SQLAlchemy notices, preventing the silent +200ms pre-ping on checkout.
+    engine_kwargs["pool_recycle"] = 1800
 
 engine = create_engine(settings.database_url, echo=settings.DEBUG, **engine_kwargs)
 

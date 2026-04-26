@@ -20,14 +20,50 @@ export interface MonthlyStatus {
   status_id: number; kri_id: number; kri_code?: string; kri_name?: string;
   dimension_id: number; dimension_name?: string; period_year: number; period_month: number;
   status: ControlStatus; rag_status?: RAGStatus; sla_due_dt?: string; sla_met?: boolean;
-  approval_level?: string; region_name?: string; category_name?: string;
+  approval_level?: string; region_name?: string; region_id?: number;
+  category_name?: string; dimension_code?: string;
+  /** Active MakerCheckerSubmission.submission_id when approval_level === 'L3'. */
+  submission_id?: number;
+}
+
+/** Request body for POST /api/data-control/{id}/l3-override */
+export interface L3OverrideRequest {
+  dimension_code: string;
+  new_status: string;
+  comment: string;
+  evidence_file_id?: number;
+}
+
+/** Response from POST /api/data-control/{id}/l3-override */
+export interface L3OverrideResponse {
+  status_id: number;
+  kri_id: number;
+  dimension_id: number;
+  period_year: number;
+  period_month: number;
+  status: ControlStatus;
+  rag_status?: RAGStatus;
+  sla_due_dt?: string;
+  sla_met?: boolean;
+  completed_dt?: string;
+  approval_level?: string;
+  kri_code?: string;
+  kri_name?: string;
+  dimension_name?: string;
+  region_name?: string;
+  region_id?: number;
 }
 
 export interface DashboardSummary {
   total_kris: number; sla_met: number; sla_met_pct: number;
   sla_breached: number; sla_breached_pct: number;
   not_started: number; not_started_pct: number;
-  pending_approvals: number; regions: string[]; period: string; last_updated?: string;
+  pending_approvals: number;
+  pending_by_level: Record<string, number>;
+  regions: string[]; period: string; last_updated?: string;
+  mom_sla_met_pct?: number;
+  mom_sla_breached_delta?: number;
+  mom_period_label?: string;
 }
 
 export interface TrendDataPoint { period: string; sla_met: number; sla_breached: number; not_started: number; }
@@ -111,6 +147,7 @@ export interface AuditEvidenceKriRow {
   control_name?: string;      // dimension_name e.g. "Timeliness"
   data_provider_name?: string;
   status: string;
+  maker_checker_status?: string;  // latest MakerCheckerSubmission.final_status
   evidence_count: number;
   period_year: number;
   period_month: number;

@@ -10,6 +10,7 @@ import os
 from app.config import get_settings
 from app.database import engine, Base, SessionLocal
 from app.middleware import RequestIdMiddleware, AuditLogMiddleware
+from app.scheduler import create_scheduler
 from app.routers import (
     auth_router, lookup_router, dashboard_router, kri_router,
     config_router, control_router, mc_router, evidence_router,
@@ -284,7 +285,29 @@ async def lifespan(app: FastAPI):
     logger.info(f"Starting BIC-CCD v{settings.APP_VERSION} ({settings.ENV})")
     Base.metadata.create_all(bind=engine)
     seed_database()
+
+    scheduler = None
+    if settings.SCHEDULER_ENABLED:
+        try:
+            scheduler = create_scheduler()
+            scheduler.start()
+            logger.info(
+                "Scheduler started — %d jobs active (SCHEDULER_ENABLED=true)",
+                len(scheduler.get_jobs()),
+            )
+        except Exception:
+            logger.exception(
+                "Scheduler failed to start — app continues without background jobs"
+            )
+            scheduler = None
+    else:
+        logger.info("Scheduler disabled (SCHEDULER_ENABLED=false) — no background jobs")
+
     yield
+
+    if scheduler is not None:
+        scheduler.shutdown(wait=False)
+        logger.info("Scheduler shut down")
     logger.info("Shutting down BIC-CCD")
 
 

@@ -42,6 +42,7 @@ from app.models import (
     AppUser, KriApprovalLog, KriAuditSummary, KriBluesheet,
     KriEmailIteration, KriEvidenceMetadata, KriMaster, RegionMaster,
     MonthlyControlStatus, KriConfiguration, ControlDimensionMaster,
+    MakerCheckerSubmission,
 )
 from app.schemas import (
     AuditEvidenceItem, AuditEvidenceKriRow, AuditSummaryResponse,
@@ -69,6 +70,7 @@ def _mock_email_log(
     iteration: int,
     action: str,
     performed_dt: datetime,
+    comments: Optional[str] = None,
 ) -> None:
     """Write the email payload JSON to disk for dev inspection."""
     os.makedirs(_EMAIL_LOG_DIR, exist_ok=True)
@@ -86,6 +88,8 @@ def _mock_email_log(
         "action": action,
         "sent_at": performed_dt.isoformat(),
     }
+    if comments:
+        payload["comments"] = comments
     with open(os.path.join(_EMAIL_LOG_DIR, fname), "w") as f:
         json.dump(payload, f, indent=2)
     logger.info("DEV email mocked → %s", fname)
@@ -190,15 +194,18 @@ def _send_outbound_email(
     action: str,
     recipient_emails: List[str],
     performed_dt: datetime,
+    comments: Optional[str] = None,
+    kri_name: str = "",
+    region_code: str = "",
 ) -> str:
     """Send email via the HTTP email service. Returns the generated uuid."""
     email_uuid = str(uuid.uuid4())
-    subject = f"KRI-{kri_id} [{month_year_label}] | Iter-{iteration} | {action}"
+    subject = f"KRI-{kri_id} | {month_year_label} | Iteration {iteration} | {action}"
 
     # ── DEV MOCK: write to disk, skip real HTTP call ──────────────────────────
     if settings.DEV_MOCK_EMAIL or not settings.EMAIL_SERVICE_URL:
         _mock_email_log(email_uuid, subject, recipient_emails, kri_id, kri_code,
-                        month_year_label, iteration, action, performed_dt)
+                        month_year_label, iteration, action, performed_dt, comments)
         if not settings.EMAIL_SERVICE_URL:
             logger.warning("EMAIL_SERVICE_URL not configured — email mocked for %s", subject)
         else:
@@ -232,9 +239,12 @@ def _send_outbound_email(
                 {
                     "kri_id": str(kri_id),
                     "kri_code": kri_code,
+                    "kri_name": kri_name,
+                    "region": region_code,
                     "period": month_year_label,
                     "iteration": str(iteration),
                     "action": action,
+                    **({"comments": comments} if comments else {}),
                 }
             ],
         },
@@ -267,7 +277,7 @@ def _build_eml_content(
     body: str,
     sent_dt: datetime,
 ) -> bytes:
-    """Build a minimal RFC-2822 .eml file."""
+    """Build a minimal RFC-2822 .eml file with an HTML body."""
     to_str = ", ".join(to_addrs)
     date_str = sent_dt.strftime("%a, %d %b %Y %H:%M:%S +0000")
     return (
@@ -276,9 +286,220 @@ def _build_eml_content(
         f"Subject: {subject}\r\n"
         f"Date: {date_str}\r\n"
         f"MIME-Version: 1.0\r\n"
-        f"Content-Type: text/plain; charset=utf-8\r\n\r\n"
+        f"Content-Type: text/html; charset=utf-8\r\n\r\n"
         f"{body}\r\n"
     ).encode("utf-8")
+
+
+# ─── Structured HTML email body builder ─────────────────────────────────────
+
+_STATUS_COLOURS: dict = {
+    "approved": "#2e7d32",
+    "final approved": "#1b5e20",
+    "rejected": "#c62828",
+    "rework required": "#f57c00",
+    "rework": "#f57c00",
+    "escalated": "#6a1b9a",
+    "submission": "#1565c0",
+    "submitted": "#1565c0",
+}
+
+
+def _build_email_html_body(
+    kri_code: str,
+    kri_name: str,
+    region_code: str,
+    month_year_label: str,
+    action: str,
+    iteration: int,
+    comments: Optional[str],
+    iteration_history: list,
+) -> str:
+    """Return a structured HTML body for approval-workflow notification emails.
+
+    *iteration_history* is a list of dicts with keys ``iteration``, ``action``,
+    and ``comments`` representing all **prior** iterations for this KRI/period.
+    The current iteration is always appended last so the audit trail is complete
+    and in chronological order.
+    """
+    colour = _STATUS_COLOURS.get(action.lower(), "#1565c0")
+
+    # ── Audit trail rows (prior iterations + current) ────────────────────────
+    all_iterations = list(iteration_history) + [
+        {"iteration": iteration, "action": action, "comments": comments, "current": True}
+    ]
+
+    trail_rows = ""
+    for entry in all_iterations:
+        entry_iter = entry.get("iteration", "")
+        entry_action = entry.get("action") or ""
+        entry_comments = entry.get("comments") or "—"
+        is_current = entry.get("current", False)
+        entry_colour = _STATUS_COLOURS.get(entry_action.lower(), "#555555")
+        row_bg = "background:#f8f9fa;" if is_current else ""
+        current_label = (
+            " <span style=\"font-size:0.72em;color:#888;font-weight:400;\">(current)</span>"
+            if is_current else ""
+        )
+        trail_rows += (
+            f"<tr style=\"{row_bg}\">"
+            f"<td style=\"padding:8px 12px;border-bottom:1px solid #eee;"
+            f"font-weight:700;white-space:nowrap;\">Iteration {entry_iter}{current_label}</td>"
+            f"<td style=\"padding:8px 12px;border-bottom:1px solid #eee;\">"
+            f"<span style=\"color:{entry_colour};font-weight:600;\">{entry_action}</span></td>"
+            f"<td style=\"padding:8px 12px;border-bottom:1px solid #eee;"
+            f"color:#444;\">{entry_comments}</td>"
+            f"</tr>"
+        )
+
+    return (
+        "<!DOCTYPE html>"
+        "<html><head>"
+        "<meta charset=\"utf-8\">"
+        "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
+        "</head>"
+        "<body style=\"margin:0;padding:0;background:#f4f6fa;"
+        "font-family:Arial,Helvetica,sans-serif;color:#222;\">"
+        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\""
+        " style=\"background:#f4f6fa;padding:24px 0;\">"
+        "<tr><td align=\"center\">"
+        "<table width=\"620\" cellpadding=\"0\" cellspacing=\"0\""
+        " style=\"background:#fff;border-radius:6px;"
+        "box-shadow:0 2px 8px rgba(0,0,0,0.08);overflow:hidden;max-width:620px;\">"
+
+        # ── Header ──────────────────────────────────────────────────────────
+        "<tr>"
+        "<td style=\"background:#003366;padding:20px 28px;\">"
+        "<p style=\"margin:0;font-size:0.7rem;font-weight:700;text-transform:uppercase;"
+        "letter-spacing:1px;color:#a8c4e0;\">B&amp;I Data Metrics and Controls</p>"
+        f"<p style=\"margin:6px 0 0;font-size:1.15rem;font-weight:700;color:#fff;\">"
+        f"{kri_code} &mdash; {kri_name}</p>"
+        f"<p style=\"margin:6px 0 0;font-size:0.82rem;color:#a8c4e0;\">"
+        f"Region:&nbsp;<strong style=\"color:#d0e4f7;\">{region_code}</strong>"
+        f"&nbsp;&nbsp;|&nbsp;&nbsp;"
+        f"Period:&nbsp;<strong style=\"color:#d0e4f7;\">{month_year_label}</strong></p>"
+        "</td>"
+        "</tr>"
+
+        # ── Status summary block ─────────────────────────────────────────────
+        "<tr>"
+        "<td style=\"padding:20px 28px 0;\">"
+        f"<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\""
+        f" style=\"border-left:4px solid {colour};background:#f8f9fa;"
+        f"border-radius:0 4px 4px 0;\">"
+        "<tr>"
+        "<td style=\"padding:14px 18px;\">"
+        "<p style=\"margin:0;font-size:0.7rem;font-weight:700;text-transform:uppercase;"
+        "letter-spacing:0.8px;color:#666;\">Current Status</p>"
+        f"<p style=\"margin:4px 0 0;font-size:1.05rem;font-weight:700;color:{colour};\">"
+        f"{action}</p>"
+        "</td>"
+        "<td style=\"padding:14px 18px;\">"
+        "<p style=\"margin:0;font-size:0.7rem;font-weight:700;text-transform:uppercase;"
+        "letter-spacing:0.8px;color:#666;\">Iteration</p>"
+        f"<p style=\"margin:4px 0 0;font-size:1.05rem;font-weight:700;color:#333;\">"
+        f"{iteration}</p>"
+        "</td>"
+        "</tr>"
+        "</table>"
+        "</td>"
+        "</tr>"
+
+        # ── Details table ────────────────────────────────────────────────────
+        "<tr>"
+        "<td style=\"padding:24px 28px 0;\">"
+        "<p style=\"margin:0 0 10px;font-size:0.78rem;font-weight:700;"
+        "text-transform:uppercase;letter-spacing:0.8px;color:#555;\">Details</p>"
+        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\""
+        " style=\"border-collapse:collapse;font-size:0.88rem;\">"
+        "<tr>"
+        "<td style=\"padding:7px 0;color:#666;width:140px;border-bottom:1px solid #eee;\">KRI ID</td>"
+        f"<td style=\"padding:7px 0;font-weight:600;border-bottom:1px solid #eee;\">{kri_code}</td>"
+        "</tr>"
+        "<tr>"
+        "<td style=\"padding:7px 0;color:#666;border-bottom:1px solid #eee;\">KRI Name</td>"
+        f"<td style=\"padding:7px 0;font-weight:600;border-bottom:1px solid #eee;\">{kri_name}</td>"
+        "</tr>"
+        "<tr>"
+        "<td style=\"padding:7px 0;color:#666;border-bottom:1px solid #eee;\">Region</td>"
+        f"<td style=\"padding:7px 0;font-weight:600;border-bottom:1px solid #eee;\">{region_code}</td>"
+        "</tr>"
+        "<tr>"
+        "<td style=\"padding:7px 0;color:#666;border-bottom:1px solid #eee;\">Period</td>"
+        f"<td style=\"padding:7px 0;font-weight:600;border-bottom:1px solid #eee;\">{month_year_label}</td>"
+        "</tr>"
+        "<tr>"
+        "<td style=\"padding:7px 0;color:#666;border-bottom:1px solid #eee;\">Action Taken</td>"
+        f"<td style=\"padding:7px 0;font-weight:600;color:{colour};"
+        f"border-bottom:1px solid #eee;\">{action}</td>"
+        "</tr>"
+        "<tr>"
+        "<td style=\"padding:7px 0;color:#666;\">Iteration</td>"
+        f"<td style=\"padding:7px 0;font-weight:600;\">{iteration}</td>"
+        "</tr>"
+        "</table>"
+        "</td>"
+        "</tr>"
+
+        # ── Audit trail ──────────────────────────────────────────────────────
+        "<tr>"
+        "<td style=\"padding:24px 28px 0;\">"
+        "<p style=\"margin:0 0 10px;font-size:0.78rem;font-weight:700;"
+        "text-transform:uppercase;letter-spacing:0.8px;color:#555;\">"
+        "Iteration &amp; Audit Trail</p>"
+        "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\""
+        " style=\"border-collapse:collapse;font-size:0.88rem;\">"
+        "<thead>"
+        "<tr style=\"background:#e8edf5;\">"
+        "<th style=\"padding:8px 12px;text-align:left;border-bottom:2px solid #c5cfe0;"
+        "width:160px;\">Iteration</th>"
+        "<th style=\"padding:8px 12px;text-align:left;border-bottom:2px solid #c5cfe0;"
+        "width:180px;\">Action</th>"
+        "<th style=\"padding:8px 12px;text-align:left;border-bottom:2px solid #c5cfe0;\">"
+        "Comments</th>"
+        "</tr>"
+        "</thead>"
+        f"<tbody>{trail_rows}</tbody>"
+        "</table>"
+        "</td>"
+        "</tr>"
+
+        # ── Action link ──────────────────────────────────────────────────────
+        "<tr>"
+        "<td style=\"padding:28px 28px 0;\">"
+        "<a href=\"/approvals\""
+        " style=\"display:inline-block;background:#003366;color:#fff;"
+        "text-decoration:none;padding:11px 22px;border-radius:4px;"
+        "font-size:0.88rem;font-weight:600;\">View &amp; Take Action &rarr;</a>"
+        "</td>"
+        "</tr>"
+
+        # ── Body copy ────────────────────────────────────────────────────────
+        "<tr>"
+        "<td style=\"padding:20px 28px 0;\">"
+        "<p style=\"margin:0;font-size:0.88rem;color:#444;line-height:1.6;\">"
+        "Kindly review and take the necessary action at your earliest convenience."
+        "</p>"
+        "</td>"
+        "</tr>"
+
+        # ── Footer ───────────────────────────────────────────────────────────
+        "<tr>"
+        "<td style=\"padding:24px 28px;\">"
+        "<hr style=\"border:none;border-top:1px solid #e0e0e0;margin:0 0 16px;\">"
+        "<p style=\"margin:0;font-size:0.75rem;color:#999;line-height:1.5;\">"
+        "This is an automated notification from the "
+        "<strong>B&amp;I Data Metrics and Controls</strong> platform. "
+        "Do not reply to this email."
+        "</p>"
+        "</td>"
+        "</tr>"
+
+        "</table>"
+        "</td></tr>"
+        "</table>"
+        "</body></html>"
+    )
 
 
 # ─── KRI context helpers ─────────────────────────────────────────────────────
@@ -468,6 +689,26 @@ def list_kris_with_evidence(
         .all()
     }
 
+    # 5b ── Check if ANY submission for this kri_id+period is APPROVED.
+    #        Mirrors the backend generate-summary gate exactly: one APPROVED dimension
+    #        is sufficient to allow summary generation for the whole KRI.
+    approved_kri_ids = {
+        row.kri_id
+        for row in (
+            db.query(MonthlyControlStatus.kri_id)
+            .join(MakerCheckerSubmission, MakerCheckerSubmission.status_id == MonthlyControlStatus.status_id)
+            .filter(
+                MonthlyControlStatus.period_year == year,
+                MonthlyControlStatus.period_month == month,
+                MonthlyControlStatus.kri_id.in_(kri_ids),
+                MakerCheckerSubmission.final_status == "APPROVED",
+            )
+            .distinct()
+            .all()
+        )
+    }
+    mc_status_map: dict[int, str] = {kri_id: "APPROVED" for kri_id in approved_kri_ids}
+
     # 6 ── Build one row per KRI × Control
     rows = []
     for cfg, dim in configs:
@@ -494,6 +735,7 @@ def list_kris_with_evidence(
                 control_name=dim.dimension_name,
                 data_provider_name=bs.data_provider_name if bs else None,
                 status=ctrl_status,
+                maker_checker_status=mc_status_map.get(kri.kri_id),
                 evidence_count=ev_cnt,
                 period_year=year,
                 period_month=month,
@@ -688,9 +930,27 @@ def send_outbound_email(
     region_code = ctx["region_code"]
     control_id = ctx["control_id"]
     kri_code = ctx["kri_code"]
+    kri_name = ctx["kri_name"]
 
     month_label = month_name[payload.month]
     month_year_label = f"{month_label} {payload.year}"
+
+    # Query prior email iterations for the audit trail before incrementing
+    prior_emails = (
+        db.query(KriEvidenceMetadata)
+        .filter(
+            KriEvidenceMetadata.kri_id == payload.kri_id,
+            KriEvidenceMetadata.period_year == payload.year,
+            KriEvidenceMetadata.period_month == payload.month,
+            KriEvidenceMetadata.evidence_type == "email",
+        )
+        .order_by(KriEvidenceMetadata.evidence_id)
+        .all()
+    )
+    iter_history = [
+        {"iteration": r.iteration, "action": r.action or "", "comments": r.notes}
+        for r in prior_emails
+    ]
 
     iteration = _increment_iteration(payload.kri_id, payload.year, payload.month, db)
 
@@ -704,18 +964,23 @@ def send_outbound_email(
         task_id, iteration, ts_str, action_slug,
     )
 
-    # Build .eml content
-    subject = f"KRI-{payload.kri_id} [{month_year_label}] | Iter-{iteration} | {payload.action}"
+    # Build structured HTML .eml content
+    subject = f"KRI-{payload.kri_id} | {month_year_label} | Iteration {iteration} | {payload.action}"
+    html_body = _build_email_html_body(
+        kri_code=kri_code,
+        kri_name=kri_name,
+        region_code=region_code,
+        month_year_label=month_year_label,
+        action=payload.action,
+        iteration=iteration,
+        comments=None,
+        iteration_history=iter_history,
+    )
     eml_content = _build_eml_content(
         subject=subject,
         from_addr=settings.EMAIL_FROM_ADDRESS or "noreply@company.com",
         to_addrs=payload.recipient_emails,
-        body=(
-            f"KRI: {kri_code} — {ctx['kri_name']}\n"
-            f"Period: {month_year_label}\n"
-            f"Action: {payload.action}\n"
-            f"Iteration: {iteration}\n"
-        ),
+        body=html_body,
         sent_dt=ts,
     )
     _upload_to_s3(eml_key, eml_content, content_type="message/rfc822")
@@ -753,6 +1018,9 @@ def send_outbound_email(
         payload.action,
         payload.recipient_emails,
         ts,
+        None,
+        kri_name,
+        region_code,
     )
 
     return {"iteration": iteration, "email_uuid": task_id, "s3_path": eml_key}
@@ -783,9 +1051,20 @@ async def receive_inbound_email(
     from_addr = msg.get("From", "")
     to_addr = msg.get("To", "")
 
-    # Try to extract KRI-{id} [{Month Year}] | Iter-{n}
-    pattern = r"KRI-(\d+)\s*\[([^\]]+)\]\s*\|\s*Iter-(\d+)"
-    match = re.search(pattern, subject, re.IGNORECASE)
+    # Try new format first: KRI-{id} | {Month Year} | Iteration {n} | {action}
+    # Fall back to old format: KRI-{id} [{Month Year}] | Iter-{n} | {action}
+    # Both formats keep group(1)=kri_id, group(2)=month_year, group(3)=iteration.
+    match = re.search(
+        r"KRI-(\d+)\s*\|\s*([A-Za-z]+ \d{4})\s*\|\s*Iteration\s+(\d+)",
+        subject,
+        re.IGNORECASE,
+    )
+    if not match:
+        match = re.search(
+            r"KRI-(\d+)\s*\[([^\]]+)\]\s*\|\s*Iter-(\d+)",
+            subject,
+            re.IGNORECASE,
+        )
 
     is_unmapped = False
     kri_id = None
@@ -912,17 +1191,40 @@ def generate_audit_summary(
     month = payload.month
     month_label = month_name[month]
 
-    # Fetch all evidence for this KRI + period
-    evidences = (
+    # Gate: only allow generation after final L3 approval.
+    # Joins MakerCheckerSubmission → MonthlyControlStatus to find an APPROVED
+    # submission for this KRI + period. Role check alone (require_l3) is insufficient.
+    approved_sub = (
+        db.query(MakerCheckerSubmission)
+        .join(MonthlyControlStatus, MakerCheckerSubmission.status_id == MonthlyControlStatus.status_id)
+        .filter(
+            MonthlyControlStatus.kri_id == kri_id,
+            MonthlyControlStatus.period_year == year,
+            MonthlyControlStatus.period_month == month,
+            MakerCheckerSubmission.final_status == "APPROVED",
+        )
+        .first()
+    )
+    if not approved_sub:
+        raise HTTPException(
+            status_code=403,
+            detail="Audit summary can only be generated after the record has reached final L3 approval.",
+        )
+
+    # Fetch evidence for this KRI + period, scoped to the dimension when provided.
+    # control_code (dimension_code string, e.g. "VARIANCE_ANALYSIS") must match
+    # what the frontend Evidence modal uses so counts are identical.
+    ev_q = (
         db.query(KriEvidenceMetadata)
         .filter(
             KriEvidenceMetadata.kri_id == kri_id,
             KriEvidenceMetadata.period_year == year,
             KriEvidenceMetadata.period_month == month,
         )
-        .order_by(KriEvidenceMetadata.created_dt)
-        .all()
     )
+    if payload.control_code:
+        ev_q = ev_q.filter(KriEvidenceMetadata.control_id == payload.control_code)
+    evidences = ev_q.order_by(KriEvidenceMetadata.created_dt).all()
 
     # Fetch approval log
     approval_logs = (
@@ -935,17 +1237,10 @@ def generate_audit_summary(
     # Bluesheet
     bs = db.query(KriBluesheet).filter(KriBluesheet.kri_id == kri_id).first()
 
-    # Iteration count
-    iter_row = (
-        db.query(KriEmailIteration)
-        .filter(
-            KriEmailIteration.kri_id == kri_id,
-            KriEmailIteration.period_year == year,
-            KriEmailIteration.period_month == month,
-        )
-        .first()
-    )
-    total_iterations = iter_row.current_iter if iter_row else 0
+    # Iteration count: distinct iteration IDs present in the dimension-filtered evidence.
+    # KriEmailIteration.current_iter is a global ever-incrementing counter (not dimension-scoped)
+    # and does not match what the Evidence modal displays — use the filtered set instead.
+    total_iterations = len({e.iteration for e in evidences if e.iteration is not None})
 
     total_evidences = len(evidences)
     total_emails = sum(1 for e in evidences if e.evidence_type == "email")
@@ -1123,7 +1418,7 @@ def generate_audit_summary(
         generated_dt=generated_dt,
         generated_by=current_user["user_id"],
         l3_approver_name=l3_approver_name,
-        final_status=bs.approval_status if bs else "APPROVED",
+        final_status=approved_sub.final_status,  # sourced from maker-checker, not bluesheet onboarding
         total_iterations=total_iterations,
         total_evidences=total_evidences,
         total_emails=total_emails,
@@ -1144,16 +1439,43 @@ def trigger_outbound_email_background(
     recipient_emails: List[str],
     performed_by_user_id: Optional[int],
     db: Session,
+    comments: Optional[str] = None,
+    dimension_code: Optional[str] = None,
 ) -> None:
-    """Called from kri_onboarding approve endpoint via BackgroundTasks."""
+    """Called from maker-checker and kri_onboarding approve endpoints via BackgroundTasks.
+
+    dimension_code — when supplied (approval-flow emails) the email record is stored
+    with control_id = dimension_code so it appears under the correct control's
+    Email Trail tab.  Falls back to _get_kri_context() for non-dimension-scoped callers.
+    """
     try:
         ctx = _get_kri_context(kri_id, db)
         region_code = ctx["region_code"]
-        control_id = ctx["control_id"]
+        # Use the real dimension_code when available so the DB control_id matches
+        # the value the email-trail query filters on (KriEvidenceMetadata.control_id).
+        control_id = dimension_code if dimension_code else ctx["control_id"]
         kri_code = ctx["kri_code"]
+        kri_name = ctx["kri_name"]
 
         month_label = month_name[month]
         month_year_label = f"{month_label} {year}"
+
+        # Query prior email iterations for audit trail before incrementing
+        prior_emails = (
+            db.query(KriEvidenceMetadata)
+            .filter(
+                KriEvidenceMetadata.kri_id == kri_id,
+                KriEvidenceMetadata.period_year == year,
+                KriEvidenceMetadata.period_month == month,
+                KriEvidenceMetadata.evidence_type == "email",
+            )
+            .order_by(KriEvidenceMetadata.evidence_id)
+            .all()
+        )
+        iter_history = [
+            {"iteration": r.iteration, "action": r.action or "", "comments": r.notes}
+            for r in prior_emails
+        ]
 
         iteration = _increment_iteration(kri_id, year, month, db)
 
@@ -1166,17 +1488,22 @@ def trigger_outbound_email_background(
             region_code, year, month, control_id,
             task_id, iteration, ts_str, action_slug,
         )
-        subject = f"KRI-{kri_id} [{month_year_label}] | Iter-{iteration} | {action}"
+        subject = f"KRI-{kri_id} | {month_year_label} | Iteration {iteration} | {action}"
+        html_body = _build_email_html_body(
+            kri_code=kri_code,
+            kri_name=kri_name,
+            region_code=region_code,
+            month_year_label=month_year_label,
+            action=action,
+            iteration=iteration,
+            comments=comments,
+            iteration_history=iter_history,
+        )
         eml_content = _build_eml_content(
             subject=subject,
             from_addr=settings.EMAIL_FROM_ADDRESS or "noreply@company.com",
             to_addrs=recipient_emails,
-            body=(
-                f"KRI: {kri_code} — {ctx['kri_name']}\n"
-                f"Period: {month_year_label}\n"
-                f"Action: {action}\n"
-                f"Iteration: {iteration}\n"
-            ),
+            body=html_body,
             sent_dt=ts,
         )
         _upload_to_s3(eml_key, eml_content, content_type="message/rfc822")
@@ -1195,6 +1522,7 @@ def trigger_outbound_email_background(
             file_name=f"email-{ts_str}-{action_slug}.eml",
             s3_object_path=eml_key,
             uploaded_by=performed_by_user_id,
+            notes=comments,
             email_uuid=task_id,
             created_by="SYSTEM",
             updated_by="SYSTEM",
@@ -1202,7 +1530,10 @@ def trigger_outbound_email_background(
         db.add(meta)
         db.commit()
 
-        _send_outbound_email(kri_id, kri_code, month_year_label, iteration, action, recipient_emails, ts)
+        _send_outbound_email(
+            kri_id, kri_code, month_year_label, iteration, action,
+            recipient_emails, ts, comments, kri_name, region_code,
+        )
 
     except Exception as exc:
         logger.error("trigger_outbound_email_background failed for KRI %d: %s", kri_id, exc)

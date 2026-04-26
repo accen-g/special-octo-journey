@@ -41,3 +41,9 @@ coverage/
 
 # Logs
 *.log
+
+#Local Files
+backend/local_evidence_store
+backend/dev_email_log
+
+.claude/

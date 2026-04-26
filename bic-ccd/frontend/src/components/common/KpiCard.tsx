@@ -69,8 +69,8 @@ export default function KpiCard({
               </Typography>
             )}
             {detail && (
-              <Typography variant="body2" sx={{ mt: 0.3, fontSize: '0.72rem', color: alert ? '#c0392b' : 'primary.main', fontWeight: 600 }}>
-                {alert ? '▲ ' : ''}{detail}
+              <Typography variant="body2" sx={{ mt: 0.3, fontSize: '0.72rem', color: 'text.secondary', fontWeight: 600 }}>
+                {detail}
               </Typography>
             )}
           </Box>

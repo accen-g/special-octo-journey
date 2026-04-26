@@ -1,4 +1,27 @@
-import { useState, useMemo } from 'react';
+/**
+ * DataControlPage — Data Control Workbench
+ *
+ * USER JOURNEY (L3 override path):
+ *   1. L3/SYSTEM_ADMIN opens /data-control → KRI VIEW (heatmap)
+ *   2. Backend list_controls response now includes region_id + dimension_code per row
+ *   3. KriMatrixItem.dimensions stores status_id, approval_level, dimension_code,
+ *      dimension_id per cell so the renderer has everything it needs
+ *   4. HeatmapCell: if user is L3/SYSTEM_ADMIN AND cell.status === 'PENDING_APPROVAL'
+ *      AND cell.approval_level === 'L3' AND user's region assignment covers the KRI's
+ *      region → renders a clickable MUI Chip with Edit icon (amber, same chip styling)
+ *   5. Non-L3 users or non-eligible cells → renders plain text label (unchanged)
+ *   6. Chip click → setOverrideTarget → L3OverrideModal opens
+ *   7. Modal submit → POST /api/data-control/{statusId}/l3-override
+ *      SUCCESS: invalidates ['controls-all'] cache → heatmap refreshes, modal closes
+ *      ERROR:   inline Alert in modal, modal stays open
+ *   8. Modal cancel → clearOverrideTarget → modal closes, no API call
+ *
+ * EMPTY / LOADING / ERROR states:
+ *   - Grid shows CircularProgress while data loads
+ *   - "No KRI records found" row for empty filter results
+ *   - L3 override chip only rendered for eligible cells; no UI change for others
+ */
+import { useState, useMemo, useEffect } from 'react';
 import {
   Box, Card, CardContent, Typography, Tabs, Tab, Chip, IconButton,
   Table, TableBody, TableCell, TableContainer, TableHead, TableRow,
@@ -6,61 +29,164 @@ import {
   DialogContent, DialogActions, Pagination,
   ToggleButtonGroup, ToggleButton,
 } from '@mui/material';
-import { Comment, Visibility, ViewList, Apps } from '@mui/icons-material';
+import { Comment, Visibility, ViewList, Apps, Edit } from '@mui/icons-material';
 import { useQuery } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import { controlApi, lookupApi } from '../../api/client';
-import { useAppSelector } from '../../store';
+import { useAppSelector, useAppDispatch, setPeriod, setRegion } from '../../store';
 import StatusBadge from '../../components/common/StatusBadge';
 import FilterBar from '../../components/common/FilterBar';
 import GlobalFilterToolbar from '../../components/common/GlobalFilterToolbar';
 import TableHeaderFilters from '../../components/common/TableHeaderFilters';
+import L3OverrideModal from '../../components/grid/L3OverrideModal';
 import { hasRole } from '../../utils/helpers';
 import type { MonthlyStatus, Dimension, Region } from '../../types';
 
+// Map dashboard card status keys to control filter values
+const DASHBOARD_STATUS_MAP: Record<string, string> = {
+  SLA_MET: 'COMPLETED',
+  BREACHED: 'SLA_BREACHED',
+  NOT_STARTED: 'NOT_STARTED',
+  PENDING_APPROVAL: 'PENDING_APPROVAL',
+  ALL: '',
+};
+
 type ViewMode = 'controls' | 'kris';
+
+/** State carried per-dimension cell in the KRI view matrix. */
+interface DimensionCellData {
+  status: string;
+  sla_due_dt?: string;
+  /** MonthlyControlStatus.status_id — used for audit trail lookups. */
+  status_id: number;
+  /** Approval level on the record (e.g. 'L3' means it is at L3-pending stage). */
+  approval_level?: string;
+  /** dimension_code from the backend response. */
+  dimension_code?: string;
+  /** dimension_id for this control. */
+  dimension_id: number;
+  /** Active MakerCheckerSubmission.submission_id — present only when approval_level === 'L3'. */
+  submission_id?: number;
+}
 
 interface KriMatrixItem {
   kri_id: number;
   kri_code: string;
   kri_name: string;
   region_name: string;
+  region_id: number;
   category_name: string;
-  dimensions: Record<string, { status: string; sla_due_dt?: string }>;
+  dimensions: Record<string, DimensionCellData>;
+}
+
+/** Context passed to the L3OverrideModal when a chip is clicked. */
+interface OverrideTarget {
+  submissionId: number;
+  kriCode: string;
+  kriName: string;
 }
 
 // ─── Status config for KRI heatmap ────────────────────────────
 const STATUS_HEAT: Record<string, { cellBg: string; hoverBg: string; color: string; label: string }> = {
-  // ── Non-management statuses ───────────────────────────────
   COMPLETED:        { cellBg: '#f0fdf4', hoverBg: '#dcfce7', color: '#15803d', label: 'Completed'        },
   APPROVED:         { cellBg: '#f0fdf4', hoverBg: '#dcfce7', color: '#15803d', label: 'Approved'         },
   SLA_MET:          { cellBg: '#f0fdf4', hoverBg: '#dcfce7', color: '#15803d', label: 'SLA Met'          },
-  // ── IN_PROGRESS: no bg highlight, text-only (matches Not Started bg) ─
   IN_PROGRESS:      { cellBg: 'transparent', hoverBg: '#f9fafb', color: '#1d4ed8', label: 'In Progress'  },
   PENDING_APPROVAL: { cellBg: '#fffbeb', hoverBg: '#fef3c7', color: '#b45309', label: 'Pending Approval' },
   REWORK:           { cellBg: '#fff7ed', hoverBg: '#ffedd5', color: '#c2410c', label: 'Rework'           },
   SLA_BREACHED:     { cellBg: '#fff5f5', hoverBg: '#fee2e2', color: '#dc2626', label: 'SLA Breached'     },
   REJECTED:         { cellBg: '#fdf2f8', hoverBg: '#fce7f3', color: '#9d174d', label: 'Rejected'         },
   NOT_STARTED:      { cellBg: 'transparent', hoverBg: '#f9fafb', color: '#9ca3af', label: 'Not Started'  },
-  // ── Management-specific statuses ─────────────────────────
   PASS:             { cellBg: '#f0fdf4', hoverBg: '#dcfce7', color: '#15803d', label: 'Pass'             },
   FAIL:             { cellBg: '#fff5f5', hoverBg: '#fee2e2', color: '#dc2626', label: 'Fail'             },
 };
 
-// Returns cell bg for TableCell sx
 function getStatusCellStyle(status: string) {
   const cfg = STATUS_HEAT[status];
   return cfg ? { bgcolor: cfg.cellBg, hoverBg: cfg.hoverBg } : { bgcolor: 'transparent', hoverBg: '#f9fafb' };
 }
 
-// ─── Heatmap cell: colored text only, no icon, no pill ────────
-function HeatmapCell({ status, slaDue }: { status: string; slaDue?: string }) {
-  const cfg = STATUS_HEAT[status] || { cellBg: 'transparent', hoverBg: '#f9fafb', color: '#9ca3af', label: status };
+// ─── Table column borders ─────────────────────────────────────
+const COL_BORDER = { borderRight: '1px solid rgba(0,0,0,0.07)' };
+const ROW_BORDER = { borderBottom: '1px solid rgba(0,0,0,0.08)' };
+
+// ─── L3 eligibility check ─────────────────────────────────────
+/**
+ * Returns true when ALL of the following hold:
+ *   - Authenticated user has L3_ADMIN or SYSTEM_ADMIN role
+ *   - Cell status is PENDING_APPROVAL
+ *   - Cell approval_level is 'L3'
+ *   - User holds that role for the KRI's region (or with a null/global region)
+ *
+ * RBAC is enforced server-side; this check is display-only convenience.
+ */
+function isL3Eligible(
+  cell: DimensionCellData,
+  kriRegionId: number,
+  userRoles: { role_code: string; region_id: number | null }[],
+): boolean {
+  if (cell.status !== 'PENDING_APPROVAL') return false;
+  if (cell.approval_level !== 'L3') return false;
+  // Must have a resolved submission_id to call the maker-checker action endpoint
+  if (!cell.submission_id) return false;
+  const l3RoleCodes = new Set(['L3_ADMIN', 'SYSTEM_ADMIN', 'ANC_APPROVER_L3']);
+  return userRoles.some(
+    (r) =>
+      l3RoleCodes.has(r.role_code) &&
+      (r.region_id === null || r.region_id === kriRegionId),
+  );
+}
+
+// ─── Heatmap cell renderer ─────────────────────────────────────
+interface HeatmapCellProps {
+  cell: DimensionCellData;
+  kriRegionId: number;
+  userRoles: { role_code: string; region_id: number | null }[];
+  onOverrideClick: () => void;
+}
+
+function HeatmapCell({ cell, kriRegionId, userRoles, onOverrideClick }: HeatmapCellProps) {
+  const cfg = STATUS_HEAT[cell.status] || { cellBg: 'transparent', hoverBg: '#f9fafb', color: '#9ca3af', label: cell.status };
+  const eligible = isL3Eligible(cell, kriRegionId, userRoles);
+
+  const tooltipTitle = cell.sla_due_dt
+    ? `${cfg.label} — SLA: ${new Date(cell.sla_due_dt).toLocaleDateString('en-GB')}`
+    : cfg.label;
+
+  if (eligible) {
+    // Render a clickable chip with an Edit icon for L3-eligible cells
+    return (
+      <Tooltip title={`${tooltipTitle} — Click to override`} arrow placement="top">
+        <Chip
+          label={
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4 }}>
+              <Typography sx={{ fontSize: '0.72rem', fontWeight: 700, lineHeight: 1 }}>
+                {cfg.label}
+              </Typography>
+              <Edit sx={{ fontSize: 11, opacity: 0.8 }} />
+            </Box>
+          }
+          size="small"
+          onClick={(e) => { e.stopPropagation(); onOverrideClick(); }}
+          sx={{
+            bgcolor: cfg.cellBg || '#fffbeb',
+            color: cfg.color,
+            border: `1px solid ${cfg.color}30`,
+            cursor: 'pointer',
+            height: 22,
+            fontWeight: 700,
+            px: 0.5,
+            '& .MuiChip-label': { px: 0.5 },
+            '&:hover': { bgcolor: cfg.hoverBg, borderColor: cfg.color },
+          }}
+        />
+      </Tooltip>
+    );
+  }
+
+  // Non-eligible: plain text label — identical to the original HeatmapCell output
   return (
-    <Tooltip
-      title={slaDue ? `${cfg.label} — SLA: ${new Date(slaDue).toLocaleDateString('en-GB')}` : cfg.label}
-      arrow
-      placement="top"
-    >
+    <Tooltip title={tooltipTitle} arrow placement="top">
       <Typography
         aria-label={cfg.label}
         component="span"
@@ -72,19 +198,44 @@ function HeatmapCell({ status, slaDue }: { status: string; slaDue?: string }) {
   );
 }
 
-// ─── Table column borders ─────────────────────────────────────
-const COL_BORDER = { borderRight: '1px solid rgba(0,0,0,0.07)' };
-const ROW_BORDER = { borderBottom: '1px solid rgba(0,0,0,0.08)' };
-
+// ─── Page ──────────────────────────────────────────────────────
 export default function DataControlPage() {
   const { selectedPeriod, selectedRegionId } = useAppSelector((s) => s.ui);
   const { user } = useAppSelector((s) => s.auth);
+  const dispatch = useAppDispatch();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(0);
   const [page, setPage] = useState(1);
   const [detailOpen, setDetailOpen] = useState(false);
   const [selectedStatus, setSelectedStatus] = useState<MonthlyStatus | null>(null);
   const [statusFilter, setStatusFilter] = useState('');
   const [viewMode, setViewMode] = useState<ViewMode>('controls');
+
+  // ── L3 override target ─────────────────────────────────────
+  const [overrideTarget, setOverrideTarget] = useState<OverrideTarget | null>(null);
+
+  // Apply query params from dashboard card navigation (runs once on mount)
+  useEffect(() => {
+    const qpStatus = searchParams.get('status');
+    const qpYear = searchParams.get('period_year');
+    const qpMonth = searchParams.get('period_month');
+    const qpRegionId = searchParams.get('region_id');
+
+    if (qpStatus) {
+      const mapped = DASHBOARD_STATUS_MAP[qpStatus] ?? '';
+      setStatusFilter(mapped);
+    }
+    if (qpYear && qpMonth) {
+      dispatch(setPeriod({ year: Number(qpYear), month: Number(qpMonth) }));
+    }
+    if (qpRegionId) {
+      dispatch(setRegion(Number(qpRegionId)));
+    }
+    if (qpStatus || qpYear || qpMonth || qpRegionId) {
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Control View inline column filters
   const [controlFilters, setControlFilters] = useState({
@@ -109,13 +260,14 @@ export default function DataControlPage() {
   const [dimensionFilters, setDimensionFilters] = useState<Record<string, string>>({});
 
   const isManagement = hasRole(user?.roles || [], ['MANAGEMENT']);
+  const userRoles = (user?.roles || []) as { role_code: string; region_id: number | null }[];
 
   const { data: regions = [] } = useQuery<Region[]>({
     queryKey: ['regions'],
     queryFn: () => lookupApi.regions().then((r) => r.data),
   });
 
-  const { data: categories = [] } = useQuery<any[]>({
+  const { data: categories = [] } = useQuery<{ category_id: number; category_name: string }[]>({
     queryKey: ['categories'],
     queryFn: () => lookupApi.categories().then((r) => r.data),
   });
@@ -176,7 +328,8 @@ export default function DataControlPage() {
           kri_code: item.kri_code || '',
           kri_name: item.kri_name || '',
           region_name: item.region_name || '',
-          category_name: (item as any).category_name || '',
+          region_id: item.region_id ?? 0,
+          category_name: (item as { category_name?: string }).category_name || '',
           dimensions: {},
         });
       }
@@ -185,6 +338,11 @@ export default function DataControlPage() {
         entry.dimensions[item.dimension_name] = {
           status: item.status,
           sla_due_dt: item.sla_due_dt,
+          status_id: item.status_id,
+          approval_level: item.approval_level,
+          dimension_code: item.dimension_code,
+          dimension_id: item.dimension_id,
+          submission_id: (item as { submission_id?: number }).submission_id,
         };
       }
     });
@@ -210,7 +368,6 @@ export default function DataControlPage() {
       if (kriFilters.kriName && !kri.kri_name?.toLowerCase().includes(kriFilters.kriName.toLowerCase())) return false;
       if (kriFilters.region && kri.region_name !== kriFilters.region) return false;
       if (kriFilters.category && kri.category_name !== kriFilters.category) return false;
-      // Per-dimension status filters
       for (const [dimName, filterStatus] of Object.entries(dimensionFilters)) {
         if (filterStatus && kri.dimensions[dimName]?.status !== filterStatus) return false;
       }
@@ -331,28 +488,28 @@ export default function DataControlPage() {
               />
               {isManagement ? (
                 <>
-                  <Chip label={`✓ Pass (${(statusCounts as any).pass})`}
+                  <Chip label={`✓ Pass (${(statusCounts as { pass: number }).pass})`}
                     variant={statusFilter === 'PASS' ? 'filled' : 'outlined'}
                     onClick={() => setStatusFilter('PASS')} size="small" color="success" sx={{ fontWeight: 600 }} />
-                  <Chip label={`✕ Fail (${(statusCounts as any).fail})`}
+                  <Chip label={`✕ Fail (${(statusCounts as { fail: number }).fail})`}
                     variant={statusFilter === 'FAIL' ? 'filled' : 'outlined'}
                     onClick={() => setStatusFilter('FAIL')} size="small" color="error" sx={{ fontWeight: 600 }} />
-                  <Chip label={`▶ In Progress (${(statusCounts as any).inProgress})`}
+                  <Chip label={`▶ In Progress (${(statusCounts as { inProgress: number }).inProgress})`}
                     variant={statusFilter === 'IN_PROGRESS' ? 'filled' : 'outlined'}
                     onClick={() => setStatusFilter('IN_PROGRESS')} size="small" color="info" sx={{ fontWeight: 600 }} />
                 </>
               ) : (
                 <>
-                  <Chip label={`✕ Breached (${(statusCounts as any).breached})`}
+                  <Chip label={`✕ Breached (${(statusCounts as { breached: number }).breached})`}
                     variant={statusFilter === 'SLA_BREACHED' ? 'filled' : 'outlined'}
                     onClick={() => setStatusFilter('SLA_BREACHED')} size="small" color="error" sx={{ fontWeight: 600 }} />
-                  <Chip label={`⏳ Pending (${(statusCounts as any).pending})`}
+                  <Chip label={`⏳ Pending (${(statusCounts as { pending: number }).pending})`}
                     variant={statusFilter === 'PENDING_APPROVAL' ? 'filled' : 'outlined'}
                     onClick={() => setStatusFilter('PENDING_APPROVAL')} size="small" color="warning" sx={{ fontWeight: 600 }} />
-                  <Chip label={`✓ SLA Met (${(statusCounts as any).met})`}
+                  <Chip label={`✓ SLA Met (${(statusCounts as { met: number }).met})`}
                     variant={statusFilter === 'COMPLETED' ? 'filled' : 'outlined'}
                     onClick={() => setStatusFilter('COMPLETED')} size="small" color="success" sx={{ fontWeight: 600 }} />
-                  <Chip label={`— Not Started (${(statusCounts as any).notStarted})`}
+                  <Chip label={`— Not Started (${(statusCounts as { notStarted: number }).notStarted})`}
                     variant={statusFilter === 'NOT_STARTED' ? 'filled' : 'outlined'}
                     onClick={() => setStatusFilter('NOT_STARTED')} size="small" sx={{ fontWeight: 600 }} />
                 </>
@@ -414,7 +571,7 @@ export default function DataControlPage() {
                           label: 'Category',
                           type: 'select',
                           value: controlFilters.category,
-                          options: categories.map((c: any) => ({ value: c.category_name, label: c.category_name })),
+                          options: categories.map((c) => ({ value: c.category_name, label: c.category_name })),
                           onChange: (v) => setControlFilters({ ...controlFilters, category: v }),
                         },
                         {
@@ -570,7 +727,7 @@ export default function DataControlPage() {
                           label: 'Category',
                           type: 'select',
                           value: kriFilters.category,
-                          options: categories.map((c: any) => ({ value: c.category_name, label: c.category_name })),
+                          options: categories.map((c) => ({ value: c.category_name, label: c.category_name })),
                           onChange: (v) => setKriFilters({ ...kriFilters, category: v }),
                         },
                         ...dimensions.map((dim) => ({
@@ -615,7 +772,18 @@ export default function DataControlPage() {
                               }}
                             >
                               {dimStatus ? (
-                                <HeatmapCell status={dimStatus.status} slaDue={dimStatus.sla_due_dt} />
+                                <HeatmapCell
+                                  cell={dimStatus}
+                                  kriRegionId={kri.region_id}
+                                  userRoles={userRoles}
+                                  onOverrideClick={() =>
+                                    setOverrideTarget({
+                                      submissionId: dimStatus.submission_id!,
+                                      kriCode:      kri.kri_code,
+                                      kriName:      kri.kri_name,
+                                    })
+                                  }
+                                />
                               ) : (
                                 <Typography variant="caption" sx={{ color: '#e2e8f0' }}>—</Typography>
                               )}
@@ -672,7 +840,7 @@ export default function DataControlPage() {
                 </TableRow>
               </TableHead>
               <TableBody>
-                {auditTrail.map((a: any) => (
+                {auditTrail.map((a: { audit_id: number; action: string; performer_name?: string; performed_by: number; performed_dt: string; comments?: string; previous_status?: string; new_status?: string }) => (
                   <TableRow key={a.audit_id}>
                     <TableCell><Chip label={a.action} size="small" sx={{ fontWeight: 600, fontSize: '0.7rem' }} /></TableCell>
                     <TableCell sx={{ fontSize: '0.82rem' }}>{a.performer_name || a.performed_by}</TableCell>
@@ -698,6 +866,17 @@ export default function DataControlPage() {
           <Button onClick={() => setDetailOpen(false)}>Close</Button>
         </DialogActions>
       </Dialog>
+
+      {/* ─── L3 Override Modal ─────────────────────────────────── */}
+      {overrideTarget && (
+        <L3OverrideModal
+          open={overrideTarget !== null}
+          onClose={() => setOverrideTarget(null)}
+          submissionId={overrideTarget.submissionId}
+          kriCode={overrideTarget.kriCode}
+          kriName={overrideTarget.kriName}
+        />
+      )}
     </Box>
   );
 }

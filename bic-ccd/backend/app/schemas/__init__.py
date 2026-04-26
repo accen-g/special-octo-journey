@@ -325,9 +325,13 @@ class DashboardSummary(BaseModel):
     not_started: int
     not_started_pct: float
     pending_approvals: int
+    pending_by_level: dict = {}
     regions: List[str]
     period: str
     last_updated: Optional[datetime] = None
+    mom_sla_met_pct: Optional[float] = None
+    mom_sla_breached_delta: Optional[int] = None
+    mom_period_label: Optional[str] = None
 
 
 class RAGBreakdown(BaseModel):
@@ -654,6 +658,7 @@ class AuditEvidenceKriRow(BaseModel):
     control_name: Optional[str] = None      # dimension_name e.g. "Timeliness"
     data_provider_name: Optional[str] = None
     status: str
+    maker_checker_status: Optional[str] = None   # latest MakerCheckerSubmission.final_status
     evidence_count: int = 0
     period_year: int
     period_month: int
@@ -687,3 +692,5 @@ class OutboundEmailRequest(BaseModel):
 class GenerateSummaryRequest(BaseModel):
     year: int
     month: int
+    control_code: Optional[str] = None  # dimension_code — scopes evidence to this control only
+

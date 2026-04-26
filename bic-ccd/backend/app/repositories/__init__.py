@@ -151,6 +151,30 @@ class UserRepository:
             q = q.filter(UserRoleMapping.region_id == region_id)
         return q.all()
 
+    def get_users_by_role_with_admin_fallback(self, role_code: str, region_id: int = None) -> List[AppUser]:
+        """Return users with the given role.  Always appends active SYSTEM_ADMIN users
+        so the caller always has at least one person to assign.  Deduplicates by user_id."""
+        role_users = self.get_users_by_role(role_code, region_id)
+
+        admin_users = (
+            self.db.query(AppUser)
+            .join(UserRoleMapping, UserRoleMapping.user_id == AppUser.user_id)
+            .filter(
+                UserRoleMapping.role_code == "SYSTEM_ADMIN",
+                UserRoleMapping.is_active == True,
+                AppUser.is_active == True,
+            )
+            .all()
+        )
+
+        seen: set = {u.user_id for u in role_users}
+        merged = list(role_users)
+        for u in admin_users:
+            if u.user_id not in seen:
+                seen.add(u.user_id)
+                merged.append(u)
+        return merged
+
 
 # ─── KRI ────────────────────────────────────────────────────
 class KriRepository:
@@ -266,7 +290,8 @@ class MonthlyStatusRepository:
         return obj
 
     def update_status(self, obj: MonthlyControlStatus, new_status: str,
-                      approval_level: str = None, approver_id: int = None):
+                      approval_level: str = None, approver_id: int = None,
+                      autocommit: bool = True):
         obj.status = new_status
         if approval_level:
             obj.approval_level = approval_level
@@ -276,8 +301,11 @@ class MonthlyStatusRepository:
         if new_status in ("COMPLETED", "APPROVED"):
             obj.completed_dt = datetime.utcnow()
             obj.sla_met = obj.sla_due_dt and datetime.utcnow() <= obj.sla_due_dt
-        self.db.commit()
-        self.db.refresh(obj)
+        if autocommit:
+            self.db.commit()
+            self.db.refresh(obj)
+        else:
+            self.db.flush()
         return obj
 
     def get_summary_counts(self, year: int, month: int, region_id: int = None) -> dict:
@@ -293,6 +321,39 @@ class MonthlyStatusRepository:
         q = q.group_by(MonthlyControlStatus.status)
         return {row[0]: row[1] for row in q.all()}
 
+    def get_multi_period_summary_counts(
+        self, periods: List[tuple], region_id: int = None
+    ) -> dict:
+        """Single query returning {(year, month): {status: count}} for multiple periods.
+
+        Replaces N sequential get_summary_counts calls with one GROUP BY query,
+        eliminating N-1 Oracle round-trips (critical at high-latency links).
+        """
+        conditions = [
+            and_(
+                MonthlyControlStatus.period_year == y,
+                MonthlyControlStatus.period_month == m,
+            )
+            for y, m in periods
+        ]
+        q = self.db.query(
+            MonthlyControlStatus.period_year,
+            MonthlyControlStatus.period_month,
+            MonthlyControlStatus.status,
+            func.count(MonthlyControlStatus.status_id),
+        ).join(KriMaster).filter(or_(*conditions))
+        if region_id:
+            q = q.filter(KriMaster.region_id == region_id)
+        q = q.group_by(
+            MonthlyControlStatus.period_year,
+            MonthlyControlStatus.period_month,
+            MonthlyControlStatus.status,
+        )
+        result: dict = {}
+        for year, month, status, cnt in q.all():
+            result.setdefault((year, month), {})[status] = cnt
+        return result
+
     def get_rag_counts(self, year: int, month: int, region_id: int = None) -> dict:
         q = self.db.query(
             MonthlyControlStatus.rag_status,
@@ -306,25 +367,34 @@ class MonthlyStatusRepository:
         q = q.group_by(MonthlyControlStatus.rag_status)
         return {row[0]: row[1] for row in q.all()}
 
-    def get_trend_data(self, months: int = 6, region_id: int = None) -> List[dict]:
-        """Return status counts per month for last N months."""
+    def get_trend_data(self, months: int = 6, region_id: int = None,
+                       anchor_year: int = None, anchor_month: int = None) -> List[dict]:
+        """Return status counts per month for last N months ending at anchor_year/anchor_month.
+
+        Uses a single batched query instead of N sequential round-trips.
+        """
         now = datetime.utcnow()
-        results = []
+        base_year = anchor_year or now.year
+        base_month = anchor_month or now.month
+        periods = []
         for i in range(months - 1, -1, -1):
-            m = now.month - i
-            y = now.year
+            m = base_month - i
+            y = base_year
             while m <= 0:
                 m += 12
                 y -= 1
-            counts = self.get_summary_counts(y, m, region_id)
-            sla_met = counts.get("COMPLETED", 0) + counts.get("APPROVED", 0)
-            breached = counts.get("SLA_BREACHED", 0)
-            not_started = counts.get("NOT_STARTED", 0)
+            periods.append((y, m))
+
+        multi = self.get_multi_period_summary_counts(periods, region_id)
+
+        results = []
+        for y, m in periods:
+            counts = multi.get((y, m), {})
             results.append({
                 "period": f"{datetime(y, m, 1):%b %y}",
-                "sla_met": sla_met,
-                "sla_breached": breached,
-                "not_started": not_started
+                "sla_met": counts.get("COMPLETED", 0) + counts.get("APPROVED", 0),
+                "sla_breached": counts.get("SLA_BREACHED", 0),
+                "not_started": counts.get("NOT_STARTED", 0),
             })
         return results
 
@@ -365,17 +435,35 @@ class MonthlyStatusRepository:
             q = q.filter(MonthlyControlStatus.current_approver == approver_id)
         return paginate(q, page, page_size)
 
+    def get_pending_approvals_by_level(self, year: int, month: int, region_id: int = None) -> dict:
+        """Return pending approval counts grouped by approval level (L1/L2/L3)."""
+        q = self.db.query(
+            MonthlyControlStatus.approval_level,
+            func.count(MonthlyControlStatus.status_id)
+        ).join(KriMaster).filter(
+            MonthlyControlStatus.status == "PENDING_APPROVAL",
+            MonthlyControlStatus.period_year == year,
+            MonthlyControlStatus.period_month == month,
+        )
+        if region_id:
+            q = q.filter(KriMaster.region_id == region_id)
+        q = q.group_by(MonthlyControlStatus.approval_level)
+        return {(row[0] or "L1"): row[1] for row in q.all()}
+
 
 # ─── Approval Audit ─────────────────────────────────────────
 class ApprovalAuditRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, data: dict) -> ApprovalAuditTrail:
+    def create(self, data: dict, autocommit: bool = True) -> ApprovalAuditTrail:
         obj = ApprovalAuditTrail(**data)
         self.db.add(obj)
-        self.db.commit()
-        self.db.refresh(obj)
+        if autocommit:
+            self.db.commit()
+            self.db.refresh(obj)
+        else:
+            self.db.flush()
         return obj
 
     def get_for_status(self, status_id: int) -> List[ApprovalAuditTrail]:
@@ -463,11 +551,14 @@ class MakerCheckerRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, data: dict) -> MakerCheckerSubmission:
+    def create(self, data: dict, autocommit: bool = True) -> MakerCheckerSubmission:
         obj = MakerCheckerSubmission(**data)
         self.db.add(obj)
-        self.db.commit()
-        self.db.refresh(obj)
+        if autocommit:
+            self.db.commit()
+            self.db.refresh(obj)
+        else:
+            self.db.flush()
         return obj
 
     def get_by_id(self, sid: int) -> Optional[MakerCheckerSubmission]:
@@ -480,12 +571,32 @@ class MakerCheckerRepository:
                                   year: int = None, month: int = None, region_id: int = None):
         """Return pending items for this approver.
         Pool-based: shows submissions assigned to this user OR unassigned (NULL approver_id).
+        Guard: only return the LATEST submission per status_id to avoid orphaned duplicates (Bug 1).
         """
+        from sqlalchemy import func
+
+        # Subquery: get the latest submission_id per status_id
+        latest_sub = (
+            self.db.query(
+                func.max(MakerCheckerSubmission.submission_id).label("max_submission_id"),
+                MakerCheckerSubmission.status_id,
+            )
+            .group_by(MakerCheckerSubmission.status_id)
+            .subquery()
+        )
+
         q = self.db.query(MakerCheckerSubmission).options(
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri).joinedload(KriMaster.region),
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.dimension),
             joinedload(MakerCheckerSubmission.submitter),
+        ).join(
+            latest_sub,
+            and_(
+                MakerCheckerSubmission.submission_id == latest_sub.c.max_submission_id,
+                MakerCheckerSubmission.status_id == latest_sub.c.status_id,
+            )
         )
+
         if level == "L1":
             q = q.filter(
                 or_(
@@ -523,11 +634,31 @@ class MakerCheckerRepository:
 
     def get_all_pending(self, level: str = None, page: int = 1, page_size: int = 50,
                         year: int = None, month: int = None, region_id: int = None):
-        """L3 Admin view: see ALL pending items across all levels."""
+        """L3 Admin view: see ALL pending items across all levels.
+        Guard: only return the LATEST submission per status_id to avoid orphaned duplicates (Bug 1).
+        """
+        from sqlalchemy import func
+
+        # Subquery: get the latest submission_id per status_id
+        latest_sub = (
+            self.db.query(
+                func.max(MakerCheckerSubmission.submission_id).label("max_submission_id"),
+                MakerCheckerSubmission.status_id,
+            )
+            .group_by(MakerCheckerSubmission.status_id)
+            .subquery()
+        )
+
         q = self.db.query(MakerCheckerSubmission).options(
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.kri).joinedload(KriMaster.region),
             joinedload(MakerCheckerSubmission.control_status).joinedload(MonthlyControlStatus.dimension),
             joinedload(MakerCheckerSubmission.submitter),
+        ).join(
+            latest_sub,
+            and_(
+                MakerCheckerSubmission.submission_id == latest_sub.c.max_submission_id,
+                MakerCheckerSubmission.status_id == latest_sub.c.status_id,
+            )
         ).filter(
             MakerCheckerSubmission.final_status.in_(["L1_PENDING", "L2_PENDING", "L3_PENDING", "PENDING"])
         )
@@ -608,10 +739,13 @@ class MakerCheckerRepository:
         q = q.order_by(desc(MakerCheckerSubmission.submitted_dt))
         return paginate(q, page, page_size)
 
-    def update(self, sub: MakerCheckerSubmission) -> MakerCheckerSubmission:
+    def update(self, sub: MakerCheckerSubmission, autocommit: bool = True) -> MakerCheckerSubmission:
         sub.updated_dt = datetime.utcnow()
-        self.db.commit()
-        self.db.refresh(sub)
+        if autocommit:
+            self.db.commit()
+            self.db.refresh(sub)
+        else:
+            self.db.flush()
         return sub
 
 
@@ -691,10 +825,13 @@ class NotificationRepository:
     def __init__(self, db: Session):
         self.db = db
 
-    def create(self, data: dict) -> Notification:
+    def create(self, data: dict, autocommit: bool = True) -> Notification:
         obj = Notification(**data)
         self.db.add(obj)
-        self.db.commit()
+        if autocommit:
+            self.db.commit()
+        else:
+            self.db.flush()
         return obj
 
     def get_for_user(self, user_id: int, unread_only: bool = False, limit: int = 20):
