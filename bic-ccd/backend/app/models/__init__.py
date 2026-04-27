@@ -905,3 +905,71 @@ class KriAuditSummary(Base):
 
     kri: Mapped["KriMaster"] = relationship(foreign_keys=[kri_id])
     generator: Mapped[Optional["AppUser"]] = relationship(foreign_keys=[generated_by])
+
+
+# ── BIC_CCD_* table override ────────────────────────────────────────────────
+# When USE_BIC_CCD_TABLES=true, replace ALL model classes in this namespace
+# with their BIC_CCD_* equivalents.  All class names are identical across both
+# modules, so every existing `from app.models import X` continues to work
+# without change — it just resolves to the BIC_CCD_* table instead.
+
+# Keep strong references to the original CCB_* model classes so Python's
+# cyclic GC cannot collect them after their names are rebound below.
+# SQLAlchemy 2.0 uses WeakSet for registry.mappers, so without this the
+# original mapper+class cycle becomes GC-eligible and Base._class_registry
+# entries turn into dead weakrefs — causing relationship('RegionMaster') to fail.
+_ccb_model_refs = [
+    RegionMaster, KriCategoryMaster, ControlDimensionMaster, KriStatusLookup,
+    KriMaster, MetricValues, KriComment, MonthlyControlStatus,
+    EvidenceVersionAudit, EvidenceMetadata, KriUserRole, RoleRegionMapping,
+    DataSourceMapping, DataSourceStatusTracker, KriAssignment, AssignmentAudit,
+    ScorecardCase, ScorecardApprover, ScorecardActivityLog, BicCase,
+    CaseFile, EmailAudit, SchedulerLock, KriConfiguration,
+    AppUser, UserRoleMapping, MakerCheckerSubmission, ApprovalAuditTrail,
+    VarianceSubmission, EscalationConfig, Notification, ApprovalAssignmentRule,
+    SavedView, KriBluesheet, KriApprovalLog, KriEvidenceMetadata,
+    KriEmailIteration, KriAuditSummary,
+]
+
+from app.config import get_settings as _get_settings  # noqa: E402
+if _get_settings().USE_BIC_CCD_TABLES:
+    from app.models.bic_ccd import (  # noqa: F401, F811
+        RegionMaster,
+        KriCategoryMaster,
+        ControlDimensionMaster,
+        KriStatusLookup,
+        KriMaster,
+        MetricValues,
+        KriComment,
+        MonthlyControlStatus,
+        EvidenceVersionAudit,
+        EvidenceMetadata,
+        KriUserRole,
+        RoleRegionMapping,
+        DataSourceMapping,
+        DataSourceStatusTracker,
+        KriAssignment,
+        AssignmentAudit,
+        ScorecardCase,
+        ScorecardApprover,
+        ScorecardActivityLog,
+        BicCase,
+        CaseFile,
+        EmailAudit,
+        SchedulerLock,
+        KriConfiguration,
+        AppUser,
+        UserRoleMapping,
+        MakerCheckerSubmission,
+        ApprovalAuditTrail,
+        VarianceSubmission,
+        EscalationConfig,
+        Notification,
+        ApprovalAssignmentRule,
+        SavedView,
+        KriBluesheet,
+        KriApprovalLog,
+        KriEvidenceMetadata,
+        KriEmailIteration,
+        KriAuditSummary,
+    )

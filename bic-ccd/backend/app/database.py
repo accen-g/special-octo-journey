@@ -24,7 +24,8 @@ if settings.USE_SQLITE:
     def _set_sqlite_pragma(dbapi_conn, connection_record):
         cursor = dbapi_conn.cursor()
         cursor.execute("PRAGMA journal_mode=WAL")
-        cursor.execute("PRAGMA foreign_keys=ON")
+        if settings.ENV != "test":
+            cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
@@ -40,6 +41,16 @@ _naming_convention = {
 
 
 class Base(DeclarativeBase):
+    metadata = MetaData(naming_convention=_naming_convention)
+
+
+class BicCcdBase(DeclarativeBase):
+    """Separate metadata root for all BIC_CCD_* tables.
+
+    Kept isolated from Base so Alembic can manage BIC_CCD_* independently
+    using version_table="ALEMBIC_VERSION_BIC_CCD", with zero risk of touching
+    existing CCB_* tables.
+    """
     metadata = MetaData(naming_convention=_naming_convention)
 
 
