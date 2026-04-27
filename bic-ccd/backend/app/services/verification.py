@@ -33,6 +33,7 @@ from sqlalchemy.orm import Session
 from app.models import (
     KriMaster, ControlDimensionMaster, KriConfiguration,
     MonthlyControlStatus, DataSourceMapping, DataSourceStatusTracker,
+    MakerCheckerSubmission, ApprovalAuditTrail,
 )
 from app.utils.sla import calculate_sla_dates
 from app.utils.business_days import nth_business_day
@@ -41,6 +42,58 @@ logger = logging.getLogger("bic_ccd.verification")
 
 
 # ─── helpers ────────────────────────────────────────────────────────────────
+
+def _get_system_user_id(db: Session) -> Optional[int]:
+    """Return user_id for the SCHEDULER system account, or first SYSTEM_ADMIN as fallback.
+
+    Both MakerCheckerSubmission.submitted_by and ApprovalAuditTrail.performed_by
+    are NOT NULL FKs, so a real user_id is required for scheduler-added rows.
+    """
+    from app.models import AppUser, UserRoleMapping
+    scheduler = db.query(AppUser).filter(AppUser.soe_id == "SCHEDULER").first()
+    if scheduler:
+        return scheduler.user_id
+    admin = (
+        db.query(AppUser)
+        .join(UserRoleMapping, UserRoleMapping.user_id == AppUser.user_id)
+        .filter(
+            UserRoleMapping.role_code == "SYSTEM_ADMIN",
+            UserRoleMapping.is_active == True,
+            AppUser.is_active == True,
+        )
+        .first()
+    )
+    return admin.user_id if admin else None
+
+
+def _resolve_l1_approver(
+    db: Session,
+    kri_id: int,
+    region_id: Optional[int] = None,
+    category_id: Optional[int] = None,
+) -> Optional[int]:
+    """Resolve L1_APPROVER user_id via assignment rules (mirrors ApproverRuleRepository.resolve)."""
+    from app.models import ApprovalAssignmentRule
+    rules = (
+        db.query(ApprovalAssignmentRule)
+        .filter(
+            ApprovalAssignmentRule.role_code == "L1_APPROVER",
+            ApprovalAssignmentRule.is_active == True,
+        )
+        .order_by(ApprovalAssignmentRule.priority)
+        .all()
+    )
+    for tier in [
+        lambda r: r.kri_id == kri_id and kri_id is not None,
+        lambda r: r.kri_id is None and r.category_id == category_id and category_id is not None,
+        lambda r: r.kri_id is None and r.category_id is None and r.region_id == region_id and region_id is not None,
+        lambda r: r.kri_id is None and r.category_id is None and r.region_id is None,
+    ]:
+        match = next((r for r in rules if tier(r) and r.user_id is not None), None)
+        if match:
+            return match.user_id
+    return None
+
 
 def _following_month(year: int, month: int):
     """Return (year, month) for the month after the given period."""
@@ -62,10 +115,18 @@ def monthly_init(db: Session, year: int, month: int) -> dict:
     """Create skeleton rows for every active KRI × dimension for *year/month*.
 
     Idempotent: skips combos that already have a row.
+    Dimensions are ordered by display_order (convention ordering — non-blocking).
+    For each new tracker row, a MakerCheckerSubmission is added so the L1 queue
+    is populated immediately without requiring manual user submissions.
     Returns a summary dict for logging.
     """
     kris = db.query(KriMaster).filter_by(is_active=True).all()
-    dims = db.query(ControlDimensionMaster).filter_by(is_active=True).all()
+    dims = (
+        db.query(ControlDimensionMaster)
+        .filter_by(is_active=True)
+        .order_by(ControlDimensionMaster.display_order)
+        .all()
+    )
     sources = db.query(DataSourceMapping).filter_by(is_active=True).all()
 
     # Pre-fetch existing status-tracker rows for this period
@@ -90,11 +151,20 @@ def monthly_init(db: Session, year: int, month: int) -> dict:
         for c in db.query(KriConfiguration).all()
     }
 
-    not_started_fk = _get_status_fk(db, "NOT_STARTED")
+    pending_fk = _get_status_fk(db, "PENDING_APPROVAL")
     not_received_fk = _get_status_fk(db, "NOT_RECEIVED")
+    system_user_id = _get_system_user_id(db)
+
+    if system_user_id is None:
+        logger.warning(
+            "monthly_init: no SCHEDULER user or SYSTEM_ADMIN found — "
+            "submission rows will not be added. Add a system user to the database."
+        )
 
     created_statuses = 0
     created_trackers = 0
+    created_submissions = 0
+    new_status_rows: list = []  # (kri, MonthlyControlStatus) for submission creation
 
     for kri in kris:
         for dim in dims:
@@ -128,8 +198,9 @@ def monthly_init(db: Session, year: int, month: int) -> dict:
                 dimension_id=dim.dimension_id,
                 period_year=year,
                 period_month=month,
-                status="NOT_STARTED",
-                status_fk=not_started_fk,
+                status="PENDING_APPROVAL",
+                status_fk=pending_fk,
+                approval_level="L1",
                 sla_start=datetime.combine(sla_start, datetime.min.time()) if sla_start else None,
                 sla_end=datetime.combine(sla_end, datetime.min.time()) if sla_end else None,
                 sla_due_dt=datetime.combine(freeze_dt, datetime.min.time()) if freeze_dt else None,
@@ -137,7 +208,48 @@ def monthly_init(db: Session, year: int, month: int) -> dict:
                 updated_by="SCHEDULER",
             )
             db.add(row)
+            new_status_rows.append((kri, row))
             created_statuses += 1
+
+    # Flush to materialise PKs on new tracker rows before creating submissions
+    if new_status_rows:
+        db.flush()
+
+    if system_user_id is not None:
+        for kri, status_row in new_status_rows:
+            l1_approver_id = _resolve_l1_approver(
+                db,
+                kri_id=kri.kri_id,
+                region_id=kri.region_id,
+                category_id=kri.category_id,
+            )
+
+            if l1_approver_id:
+                status_row.current_approver = l1_approver_id
+
+            sub = MakerCheckerSubmission(
+                status_id=status_row.status_id,
+                submitted_by=system_user_id,
+                final_status="L1_PENDING",
+                l1_approver_id=l1_approver_id,
+                submission_notes=f"Auto-initialised by scheduler for {year}-{month:02d}",
+                created_by="SCHEDULER",
+                updated_by="SCHEDULER",
+            )
+            db.add(sub)
+
+            audit = ApprovalAuditTrail(
+                status_id=status_row.status_id,
+                action="SYSTEM_INIT",
+                performed_by=system_user_id,
+                previous_status="NOT_STARTED",
+                new_status="PENDING_APPROVAL",
+                comments=f"Monthly queue initialised by scheduler for {year}-{month:02d}",
+                created_by="SCHEDULER",
+                updated_by="SCHEDULER",
+            )
+            db.add(audit)
+            created_submissions += 1
 
     # Data source tracker rows
     for src in sources:
@@ -159,6 +271,7 @@ def monthly_init(db: Session, year: int, month: int) -> dict:
         "period": f"{year}-{month:02d}",
         "created_statuses": created_statuses,
         "created_trackers": created_trackers,
+        "created_submissions": created_submissions,
     }
     logger.info("monthly_init complete: %s", summary)
     return summary
