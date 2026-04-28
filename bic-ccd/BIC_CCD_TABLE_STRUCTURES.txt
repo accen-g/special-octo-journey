@@ -1,0 +1,1127 @@
+================================================================================
+  BIC_CCD_* TABLE STRUCTURES
+  Source: backend/app/models/bic_ccd/__init__.py
+  Generated: 2026-04-28
+  Database: Oracle (BicCcdBase metadata)
+  Total Tables: 38
+================================================================================
+
+
+--------------------------------------------------------------------------------
+ 1. BIC_CCD_REGION
+    Python class: BicCcdRegionMaster
+    Purpose: Master list of geographic regions
+--------------------------------------------------------------------------------
+  Column Name     Oracle Column   Type          Nullable  Notes
+  -----------     -------------   ----          --------  -----
+  region_id       REGION_ID       INTEGER       NOT NULL  PK, Identity(start=1)
+  region_name     REGION_NAME     VARCHAR(200)  NOT NULL
+  control_lead    CTRL_LEAD       VARCHAR(200)  NULL
+  governance_team GOV_TEAM        VARCHAR(200)  NULL
+  region_code     REGION_CODE     VARCHAR(10)   NULL      UNIQUE
+  is_active       IS_ACTIVE       BOOLEAN       NOT NULL  default=True
+  created_dt      CREATED_DT      DATETIME      NOT NULL  default=utcnow [AuditMixin]
+  updated_dt      UPDATED_DT      DATETIME      NOT NULL  default=utcnow [AuditMixin]
+  created_by      CREATED_BY      VARCHAR(50)   NOT NULL  default='SYSTEM' [AuditMixin]
+  updated_by      UPDATED_BY      VARCHAR(50)   NOT NULL  default='SYSTEM' [AuditMixin]
+
+  Relationships:
+    kris → BIC_CCD_KRI_CONFIG (one-to-many)
+
+
+--------------------------------------------------------------------------------
+ 2. BIC_CCD_KRI_CATEGORY
+    Python class: BicCcdKriCategoryMaster
+    Purpose: KRI category / grouping lookup
+--------------------------------------------------------------------------------
+  Column Name     Oracle Column   Type          Nullable  Notes
+  -----------     -------------   ----          --------  -----
+  category_id     CATEGORY_ID     INTEGER       NOT NULL  PK, Identity(start=1)
+  category_name   CATEGORY_NAME   VARCHAR(200)  NOT NULL
+  category_code   CATEGORY_CODE   VARCHAR(30)   NULL      UNIQUE
+  description     DESCRIPTION     VARCHAR(500)  NULL
+  is_active       IS_ACTIVE       BOOLEAN       NOT NULL  default=True
+  created_dt      CREATED_DT      DATETIME      NOT NULL  [AuditMixin]
+  updated_dt      UPDATED_DT      DATETIME      NOT NULL  [AuditMixin]
+  created_by      CREATED_BY      VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by      UPDATED_BY      VARCHAR(50)   NOT NULL  [AuditMixin]
+
+  Relationships:
+    kris → BIC_CCD_KRI_CONFIG (one-to-many)
+
+
+--------------------------------------------------------------------------------
+ 3. BIC_CCD_KRI_CONTROL
+    Python class: BicCcdControlDimensionMaster
+    Purpose: Control dimension / type lookup (e.g. Data Provider, Maker, Checker)
+    Note: Python attr 'dimension_id' maps to Oracle column CONTROL_ID
+--------------------------------------------------------------------------------
+  Column Name          Oracle Column        Type          Nullable  Notes
+  -----------          -------------        ----          --------  -----
+  dimension_id         CONTROL_ID           INTEGER       NOT NULL  PK, Identity(start=1)
+  dimension_name       CONTROL_NAME         VARCHAR(200)  NOT NULL
+  freeze_business_days FREEZE_BUSINESS_DAYS INTEGER       NULL
+  dimension_code       DIMENSION_CODE       VARCHAR(30)   NULL      UNIQUE
+  display_order        DISPLAY_ORDER        INTEGER       NOT NULL  default=0
+  description          DESCRIPTION          VARCHAR(500)  NULL
+  is_active            IS_ACTIVE            BOOLEAN       NOT NULL  default=True
+  created_dt           CREATED_DT           DATETIME      NOT NULL  [AuditMixin]
+  updated_dt           UPDATED_DT           DATETIME      NOT NULL  [AuditMixin]
+  created_by           CREATED_BY           VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by           UPDATED_BY           VARCHAR(50)   NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+ 4. BIC_CCD_KRI_STATUS
+    Python class: BicCcdKriStatusLookup
+    Purpose: Status lookup table (NOT_STARTED, PENDING_APPROVAL, APPROVED, etc.)
+--------------------------------------------------------------------------------
+  Column Name  Oracle Column  Type         Nullable  Notes
+  -----------  -------------  ----         --------  -----
+  status_id    STATUS_ID      INTEGER      NOT NULL  PK, Identity(start=1)
+  status_name  STATUS_NAME    VARCHAR(50)  NOT NULL  UNIQUE
+  created_dt   CREATED_DT     DATETIME     NOT NULL  default=utcnow
+
+
+--------------------------------------------------------------------------------
+ 5. BIC_CCD_KRI_CONFIG
+    Python class: BicCcdKriMaster
+    Purpose: Master KRI definition / configuration
+--------------------------------------------------------------------------------
+  Column Name          Oracle Column      Type          Nullable  Notes
+  -----------          -------------      ----          --------  -----
+  kri_id               KRI_ID             INTEGER       NOT NULL  PK, Identity(start=1)
+  kri_name             KRI_NAME           VARCHAR(300)  NOT NULL
+  kri_title            KRI_TITLE          VARCHAR(300)  NULL
+  scorecard_name       SCORECARD_NAME     VARCHAR(200)  NULL
+  region_id            REGION_ID          INTEGER       NOT NULL  FK → BIC_CCD_REGION.REGION_ID
+  category_id          CATEGORY_ID        INTEGER       NOT NULL  FK → BIC_CCD_KRI_CATEGORY.CATEGORY_ID
+  legal_entities       LEGAL_ENTITIES     TEXT          NULL
+  frequency            FREQUENCY          VARCHAR(50)   NULL
+  data_sources         DATA_SOURCES       TEXT          NULL
+  sla_check            SLA_CHECK          BOOLEAN       NULL
+  sla_start_day        SLA_START          INTEGER       NULL
+  sla_end_day          SLA_END            INTEGER       NULL
+  reminder_date        REMINDER_DATE      INTEGER       NULL
+  escalation_date      ESCALATION_DATE    INTEGER       NULL
+  accuracy_check       ACCURACY_CHECK     BOOLEAN       NULL
+  completeness_check   COMPLETENESS_CHECK BOOLEAN       NULL
+  evidence_folder      EVIDENCE_FOLDER    VARCHAR(500)  NULL
+  rag_thresholds       RAG_THRESHOLD      TEXT          NULL
+  metric_value_type    METRIC_VALUE_TYPE  VARCHAR(50)   NULL
+  decimal_place        DECIMAL_PLACE      INTEGER       NULL
+  is_active            IS_ACTIVE          BOOLEAN       NOT NULL  default=True
+  kri_code             KRI_CODE           VARCHAR(30)   NULL      UNIQUE
+  description          DESCRIPTION        TEXT          NULL
+  risk_level           RISK_LEVEL         VARCHAR(20)   NOT NULL  default='MEDIUM'
+  framework            FRAMEWORK          VARCHAR(100)  NULL
+  is_dcrm              IS_DCRM            BOOLEAN       NOT NULL  default=False, server_default='0'
+  onboarded_dt         ONBOARDED_DT       DATETIME      NULL
+  created_dt           CREATED_DT         DATETIME      NOT NULL  [AuditMixin]
+  updated_dt           UPDATED_DT         DATETIME      NOT NULL  [AuditMixin]
+  created_by           CREATED_BY         VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by           UPDATED_BY         VARCHAR(50)   NOT NULL  [AuditMixin]
+
+  Relationships:
+    category   → BIC_CCD_KRI_CATEGORY (many-to-one)
+    region     → BIC_CCD_REGION (many-to-one)
+    configurations → BIC_CCD_KRI_CONFIGURATION (one-to-many)
+    assignments    → BIC_CCD_KRI_ASSIGNMENT_TRACKER (one-to-many)
+    monthly_statuses → BIC_CCD_KRI_CONTROL_STATUS_TRACKER (one-to-many)
+    evidence   → BIC_CCD_KRI_EVIDENCE (one-to-many)
+
+
+--------------------------------------------------------------------------------
+ 6. BIC_CCD_KRI_METRIC
+    Python class: BicCcdMetricValues
+    Purpose: Actual metric values per KRI × control × period
+--------------------------------------------------------------------------------
+  Column Name     Oracle Column   Type       Nullable  Notes
+  -----------     -------------   ----       --------  -----
+  metric_id       METRIC_ID       INTEGER    NOT NULL  PK, Identity(start=1)
+  kri_id          KRI_ID          INTEGER    NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  dimension_id    CONTROL_ID      INTEGER    NOT NULL  FK → BIC_CCD_KRI_CONTROL.CONTROL_ID
+  period_year     YEAR            INTEGER    NOT NULL
+  period_month    MONTH           INTEGER    NOT NULL
+  current_value   METRIC_VALUE    FLOAT      NULL
+  rag_status      RAG_STATUS      VARCHAR(10) NULL
+  run_date        RUN_DATE        DATETIME   NULL
+  previous_value  PREVIOUS_VALUE  FLOAT      NULL
+  variance_pct    VARIANCE_PCT    FLOAT      NULL
+  variance_status VARIANCE_STATUS VARCHAR(10) NULL
+  source_id       SOURCE_ID       INTEGER    NULL      FK → BIC_CCD_KRI_DATA_SOURCE_MAPPING.ID
+  captured_dt     CAPTURED_DT     DATETIME   NULL      default=utcnow
+  created_dt      CREATED_DT      DATETIME   NOT NULL  [AuditMixin]
+  updated_dt      UPDATED_DT      DATETIME   NOT NULL  [AuditMixin]
+  created_by      CREATED_BY      VARCHAR(50) NOT NULL  [AuditMixin]
+  updated_by      UPDATED_BY      VARCHAR(50) NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+ 7. BIC_CCD_KRI_COMMENT
+    Python class: BicCcdKriComment
+    Purpose: Comments/notes on KRI submissions per period
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column   Type         Nullable  Notes
+  -----------      -------------   ----         --------  -----
+  comment_id       ID              INTEGER      NOT NULL  PK, Identity(start=1)
+  kri_id           KRI_ID          INTEGER      NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  period_month     MONTH           INTEGER      NULL
+  period_year      YEAR            INTEGER      NULL
+  comment_text     COMMENTS        TEXT         NOT NULL
+  dimension_id     CONTROL_ID      INTEGER      NULL      FK → BIC_CCD_KRI_CONTROL.CONTROL_ID
+  status_id        STATUS_ID       INTEGER      NULL      FK → BIC_CCD_KRI_CONTROL_STATUS_TRACKER.ID
+  comment_type     COMMENT_TYPE    VARCHAR(20)  NOT NULL  default='GENERAL'
+  parent_comment_id PARENT_COMMENT_ID INTEGER   NULL      FK → BIC_CCD_KRI_COMMENT.ID (self-ref)
+  posted_by        POSTED_BY       INTEGER      NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  posted_dt        POSTED_DT       DATETIME     NOT NULL  default=utcnow
+  is_resolved      IS_RESOLVED     BOOLEAN      NOT NULL  default=False
+  created_dt       CREATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  updated_dt       UPDATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  created_by       CREATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+  updated_by       UPDATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+
+  Relationships:
+    poster → BIC_CCD_APP_USER (many-to-one)
+
+
+--------------------------------------------------------------------------------
+ 8. BIC_CCD_KRI_CONTROL_STATUS_TRACKER
+    Python class: BicCcdMonthlyControlStatus
+    Purpose: Core operational table — one row per KRI × control dimension × month × year
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column     Type          Nullable  Notes
+  -----------      -------------     ----          --------  -----
+  status_id        ID                INTEGER       NOT NULL  PK, Identity(start=1)
+  kri_id           KRI_ID            INTEGER       NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  dimension_id     CONTROL_ID        INTEGER       NOT NULL  FK → BIC_CCD_KRI_CONTROL.CONTROL_ID
+  period_year      YEAR              INTEGER       NOT NULL
+  period_month     MONTH             INTEGER       NOT NULL
+  status           STATUS            VARCHAR(30)   NOT NULL  default='NOT_STARTED'
+  status_fk        STATUS_ID         INTEGER       NULL      FK → BIC_CCD_KRI_STATUS.STATUS_ID
+  sla_start        SLA_START         DATETIME      NULL
+  sla_end          SLA_END           DATETIME      NULL
+  sla_check        SLA_CHECK         BOOLEAN       NULL
+  accuracy_check   ACCURACY_CHECK    BOOLEAN       NULL
+  completeness_check COMPLETENESS_CHECK BOOLEAN    NULL
+  kri_version      KRI_VERSION       VARCHAR(20)   NULL
+  short_comment    SHORT_COMMENT     VARCHAR(200)  NULL
+  long_comment     LONG_COMMENT      TEXT          NULL
+  version_comment  VERSION_COMMENT   VARCHAR(500)  NULL
+  retry_count      RETRY_COUNT       INTEGER       NOT NULL  default=0
+  assigned_to      ASSIGNED_TO       INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  admin_update     ADMIN_UPDATE      VARCHAR(200)  NULL
+  admin_update_dt  ADMIN_UPDATE_DT   DATETIME      NULL
+  rag_status       RAG_STATUS        VARCHAR(10)   NULL
+  sla_due_dt       SLA_DUE_DT        DATETIME      NULL
+  sla_met          SLA_MET           BOOLEAN       NULL
+  completed_dt     COMPLETED_DT      DATETIME      NULL
+  current_approver CURRENT_APPROVER  INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  approval_level   APPROVAL_LEVEL    VARCHAR(10)   NULL
+  created_dt       CREATED_DT        DATETIME      NOT NULL  [AuditMixin]
+  updated_dt       UPDATED_DT        DATETIME      NOT NULL  [AuditMixin]
+  created_by       CREATED_BY        VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by       UPDATED_BY        VARCHAR(50)   NOT NULL  [AuditMixin]
+
+  Constraints:
+    UNIQUE (KRI_ID, CONTROL_ID, YEAR, MONTH) — uq_bic_ccd_status_tracker_period
+    INDEX (YEAR, MONTH) — idx_bic_ccd_status_tracker_period
+
+  Relationships:
+    kri       → BIC_CCD_KRI_CONFIG (many-to-one)
+    dimension → BIC_CCD_KRI_CONTROL (many-to-one)
+
+
+--------------------------------------------------------------------------------
+ 9. BIC_CCD_KRI_CONTROL_EVIDENCE_AUDIT
+    Python class: BicCcdEvidenceVersionAudit
+    Purpose: Audit trail for evidence version changes
+--------------------------------------------------------------------------------
+  Column Name     Oracle Column    Type          Nullable  Notes
+  -----------     -------------    ----          --------  -----
+  version_id      ID               INTEGER       NOT NULL  PK, Identity(start=1)
+  evidence_id     TRACKER_ID       INTEGER       NOT NULL  FK → BIC_CCD_KRI_EVIDENCE.ID
+  metric_value    METRIC_VALUE     FLOAT         NULL
+  rag_status      RAG_STATUS       VARCHAR(10)   NULL
+  assigned_to     ASSIGNED_TO      INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  status_fk       STATUS_ID        INTEGER       NULL      FK → BIC_CCD_KRI_STATUS.STATUS_ID
+  file_ids        FILE_IDS         TEXT          NULL
+  short_comment   SHORT_COMMENT    VARCHAR(200)  NULL
+  long_comment    LONG_COMMENT     TEXT          NULL
+  version_comment VERSION_COMMENT  VARCHAR(500)  NULL
+  created_by      CREATED_BY       VARCHAR(50)   NOT NULL  default='SYSTEM'
+  created_dt      CREATED_DT       DATETIME      NOT NULL  default=utcnow
+  version_number  VERSION_NUMBER   INTEGER       NULL
+  s3_key          S3_KEY           VARCHAR(500)  NULL
+  file_size_bytes FILE_SIZE_BYTES  INTEGER       NULL
+  action          ACTION           VARCHAR(20)   NULL
+  performed_by    PERFORMED_BY     INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  performed_dt    PERFORMED_DT     DATETIME      NULL      default=utcnow
+  comments        COMMENTS         VARCHAR(500)  NULL
+
+
+--------------------------------------------------------------------------------
+10. BIC_CCD_KRI_EVIDENCE
+    Python class: BicCcdEvidenceMetadata
+    Purpose: Evidence file metadata per KRI × control × period
+--------------------------------------------------------------------------------
+  Column Name        Oracle Column       Type          Nullable  Notes
+  -----------        -------------       ----          --------  -----
+  evidence_id        ID                  INTEGER       NOT NULL  PK, Identity(start=1)
+  kri_id             KRI_ID              INTEGER       NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  dimension_id       CONTROL_ID          INTEGER       NOT NULL  FK → BIC_CCD_KRI_CONTROL.CONTROL_ID
+  period_year        YEAR                INTEGER       NOT NULL
+  period_month       MONTH               INTEGER       NOT NULL
+  file_name          FILE_NAME           VARCHAR(500)  NOT NULL
+  s3_key             FILE_PATH           VARCHAR(500)  NULL
+  evidence_status    FILE_STATUS         VARCHAR(20)   NOT NULL  default='ACTIVE', server_default='ACTIVE'
+  file_id            FILE_ID             VARCHAR(100)  NULL
+  file_upload_id     FILE_UPLOAD_ID      VARCHAR(100)  NULL
+  kri_upload_version KRI_UPLOAD_VERSION  INTEGER       NULL
+  file_type          FILE_TYPE           VARCHAR(10)   NULL
+  file_size_bytes    FILE_SIZE_BYTES     INTEGER       NULL
+  s3_bucket          S3_BUCKET           VARCHAR(200)  NULL
+  version_number     VERSION_NUMBER      INTEGER       NOT NULL  default=1
+  is_locked          IS_LOCKED           BOOLEAN       NOT NULL  default=False
+  locked_dt          LOCKED_DT           DATETIME      NULL
+  locked_by          LOCKED_BY           VARCHAR(50)   NULL
+  uploaded_by        UPLOADED_BY         INTEGER       NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  uploaded_dt        UPLOADED_DT         DATETIME      NOT NULL  default=utcnow
+  metadata_json      METADATA_JSON       TEXT          NULL
+  region_id          REGION_ID           INTEGER       NULL      FK → BIC_CCD_REGION.REGION_ID
+  tracker_id         TRACKER_ID          INTEGER       NULL      FK → BIC_CCD_KRI_CONTROL_STATUS_TRACKER.ID
+  created_dt         CREATED_DT          DATETIME      NOT NULL  [AuditMixin]
+  updated_dt         UPDATED_DT          DATETIME      NOT NULL  [AuditMixin]
+  created_by         CREATED_BY          VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by         UPDATED_BY          VARCHAR(50)   NOT NULL  [AuditMixin]
+
+  Relationships:
+    kri      → BIC_CCD_KRI_CONFIG (many-to-one)
+    uploader → BIC_CCD_APP_USER (many-to-one)
+    region   → BIC_CCD_REGION (many-to-one, nullable)
+    tracker  → BIC_CCD_KRI_CONTROL_STATUS_TRACKER (many-to-one, nullable)
+
+
+--------------------------------------------------------------------------------
+11. BIC_CCD_KRI_USER_ROLE
+    Python class: BicCcdKriUserRole
+    Purpose: Per-KRI user role flags (data_provider, maker, checker, etc.)
+--------------------------------------------------------------------------------
+  Column Name        Oracle Column    Type     Nullable  Notes
+  -----------        -------------    ----     --------  -----
+  id                 ID               INTEGER  NOT NULL  PK, Identity(start=1)
+  kri_id             KRI_ID           INTEGER  NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  user_id            USER_ID          INTEGER  NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  data_provider      DATA_PROVIDER    BOOLEAN  NOT NULL  default=False
+  metric_owner       METRIC_OWNER     BOOLEAN  NOT NULL  default=False
+  remediation_owner  REMEDIATION_OWNER BOOLEAN NOT NULL  default=False
+  maker              MAKER            BOOLEAN  NOT NULL  default=False
+  checker            CHECKER          BOOLEAN  NOT NULL  default=False
+  bi_metric_lead     BI_METRIC_LEAD   BOOLEAN  NOT NULL  default=False
+  created_dt         CREATED_DT       DATETIME NOT NULL  default=utcnow
+
+  Constraints:
+    UNIQUE (KRI_ID, USER_ID) — uq_bic_ccd_kri_user_role
+
+
+--------------------------------------------------------------------------------
+12. BIC_CCD_ROLE_REGION_MAPPING
+    Python class: BicCcdRoleRegionMapping
+    Purpose: Maps application roles to allowed regions
+--------------------------------------------------------------------------------
+  Column Name  Oracle Column  Type          Nullable  Notes
+  -----------  -------------  ----          --------  -----
+  id           ID             INTEGER       NOT NULL  PK, Identity(start=1)
+  role         ROLE           VARCHAR(100)  NOT NULL
+  region       REGION         VARCHAR(50)   NOT NULL
+  created_dt   CREATED_DT     DATETIME      NOT NULL  default=utcnow
+
+  Constraints:
+    UNIQUE (ROLE, REGION) — uq_bic_ccd_role_region
+
+
+--------------------------------------------------------------------------------
+13. BIC_CCD_KRI_DATA_SOURCE_MAPPING
+    Python class: BicCcdDataSourceMapping
+    Purpose: Maps KRIs to their data sources
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column    Type          Nullable  Notes
+  -----------      -------------    ----          --------  -----
+  source_id        ID               INTEGER       NOT NULL  PK, Identity(start=1)
+  kri_id           KRI_ID           INTEGER       NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  source_name      DATA_SOURCE      VARCHAR(200)  NOT NULL
+  payload_name     DATA_PAYLOAD     VARCHAR(200)  NULL
+  table_name       DATA_TABLE       VARCHAR(200)  NULL
+  column_name      DATA_COLUMN      VARCHAR(200)  NULL
+  schema_name      TABLE_SCHEMA     VARCHAR(200)  NULL
+  mapping_type     MAPPING_TYPE     VARCHAR(20)   NULL
+  source_type      SOURCE_TYPE      VARCHAR(50)   NULL
+  connection_info  CONNECTION_INFO  VARCHAR(500)  NULL
+  query_template   QUERY_TEMPLATE   TEXT          NULL
+  schedule_cron    SCHEDULE_CRON    VARCHAR(50)   NULL
+  is_active        IS_ACTIVE        BOOLEAN       NOT NULL  default=True
+  created_dt       CREATED_DT       DATETIME      NOT NULL  [AuditMixin]
+  updated_dt       UPDATED_DT       DATETIME      NOT NULL  [AuditMixin]
+  created_by       CREATED_BY       VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by       UPDATED_BY       VARCHAR(50)   NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+14. BIC_CCD_KRI_DATA_SOURCE_STATUS_TRACKER
+    Python class: BicCcdDataSourceStatusTracker
+    Purpose: Tracks data source ingestion status per mapping × period
+--------------------------------------------------------------------------------
+  Column Name   Oracle Column  Type         Nullable  Notes
+  -----------   -------------  ----         --------  -----
+  id            ID             INTEGER      NOT NULL  PK, Identity(start=1)
+  mapping_id    MAPPING_ID     INTEGER      NOT NULL  FK → BIC_CCD_KRI_DATA_SOURCE_MAPPING.ID
+  period_month  MONTH          INTEGER      NOT NULL
+  period_year   YEAR           INTEGER      NOT NULL
+  status_id     STATUS_ID      INTEGER      NULL      FK → BIC_CCD_KRI_STATUS.STATUS_ID
+  status        STATUS         VARCHAR(30)  NOT NULL  default='NOT_RECEIVED'
+  received_dt   RECEIVED_DT    DATETIME     NULL
+  updated_dt    UPDATED_DT     DATETIME     NOT NULL  default=utcnow
+  created_dt    CREATED_DT     DATETIME     NOT NULL  default=utcnow
+
+  Constraints:
+    UNIQUE (MAPPING_ID, MONTH, YEAR) — uq_bic_ccd_ds_tracker
+
+
+--------------------------------------------------------------------------------
+15. BIC_CCD_KRI_ASSIGNMENT_TRACKER
+    Python class: BicCcdKriAssignment
+    Purpose: Assigns users to KRI controls per period with role
+--------------------------------------------------------------------------------
+  Column Name       Oracle Column   Type         Nullable  Notes
+  -----------       -------------   ----         --------  -----
+  assignment_id     ID              INTEGER      NOT NULL  PK, Identity(start=1)
+  kri_id            KRI_ID          INTEGER      NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  dimension_id      CONTROL_ID      INTEGER      NOT NULL  FK → BIC_CCD_KRI_CONTROL.CONTROL_ID
+  period_month      MONTH           INTEGER      NULL
+  period_year       YEAR            INTEGER      NULL
+  assigned_user_id  ASSIGNED_TO     INTEGER      NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  status_fk         STATUS_ID       INTEGER      NULL      FK → BIC_CCD_KRI_STATUS.STATUS_ID
+  role_code         APPROVER_TYPE   VARCHAR(30)  NOT NULL
+  comments          COMMENTS        TEXT         NULL
+  is_active         IS_ACTIVE       BOOLEAN      NOT NULL  default=True
+  created_dt        CREATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  updated_dt        UPDATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  created_by        CREATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+  updated_by        UPDATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+
+  Relationships:
+    kri           → BIC_CCD_KRI_CONFIG (many-to-one)
+    dimension     → BIC_CCD_KRI_CONTROL (many-to-one)
+    assigned_user → BIC_CCD_APP_USER (many-to-one)
+
+
+--------------------------------------------------------------------------------
+16. BIC_CCD_KRI_ASSIGNMENT_AUDIT
+    Python class: BicCcdAssignmentAudit
+    Purpose: Audit trail for KRI assignment changes
+--------------------------------------------------------------------------------
+  Column Name       Oracle Column      Type         Nullable  Notes
+  -----------       -------------      ----         --------  -----
+  audit_id          ID                 INTEGER      NOT NULL  PK, Identity(start=1)
+  kri_id            KRI_ID             INTEGER      NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  dimension_id      CONTROL_ID         INTEGER      NOT NULL  FK → BIC_CCD_KRI_CONTROL.CONTROL_ID
+  period_month      MONTH              INTEGER      NULL
+  period_year       YEAR               INTEGER      NULL
+  assigned_user_id  ASSIGNED_TO        INTEGER      NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  status_fk         STATUS_ID          INTEGER      NULL      FK → BIC_CCD_KRI_STATUS.STATUS_ID
+  approver_level    APPROVER_TYPE      VARCHAR(30)  NULL
+  comments          COMMENTS           TEXT         NULL
+  assigned_by       CREATED_BY_USER    INTEGER      NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  assigned_at       CREATED_DT         DATETIME     NOT NULL  default=utcnow
+  action            ACTION             VARCHAR(20)  NULL
+  assignment_id     ASSIGNMENT_ID      INTEGER      NULL      FK → BIC_CCD_KRI_ASSIGNMENT_TRACKER.ID
+
+
+--------------------------------------------------------------------------------
+17. BIC_CCD_SCORECARD
+    Python class: BicCcdScorecardCase
+    Purpose: Scorecard submission cases
+--------------------------------------------------------------------------------
+  Column Name          Oracle Column        Type          Nullable  Notes
+  -----------          -------------        ----          --------  -----
+  transaction_id       TRANSACTION_ID       INTEGER       NOT NULL  PK, Identity(start=1)
+  case_id              CASE_ID              VARCHAR(50)   NULL
+  case_status          CASE_STATUS          VARCHAR(20)   NOT NULL  default='SUBMITTED'
+  request_title        REQUEST_TITLE        VARCHAR(500)  NOT NULL
+  product_level_value  PRODUCT_LEVEL_VALUE  VARCHAR(200)  NULL
+  file_id              FILE_ID              INTEGER       NULL      FK → BIC_CCD_CASE_FILE.FILE_ID
+  region_id            REGION_ID            INTEGER       NOT NULL  FK → BIC_CCD_REGION.REGION_ID
+  notes                NOTES                TEXT          NULL
+  period_month         MONTH                INTEGER       NULL
+  period_year          YEAR                 INTEGER       NULL
+  due_date             DUE_DATE             DATE          NULL
+  submitted_dt         SUBMITTED_DT         DATETIME      NULL
+  kri_id               KRI_ID               INTEGER       NULL      FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  created_by_user      CREATED_BY_USER_ID   INTEGER       NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  created_dt           CREATED_DT           DATETIME      NOT NULL  [AuditMixin]
+  updated_dt           UPDATED_DT           DATETIME      NOT NULL  [AuditMixin]
+  created_by           CREATED_BY           VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by           UPDATED_BY           VARCHAR(50)   NOT NULL  [AuditMixin]
+
+  Relationships:
+    region       → BIC_CCD_REGION (many-to-one)
+    kri          → BIC_CCD_KRI_CONFIG (many-to-one, nullable)
+    creator      → BIC_CCD_APP_USER (many-to-one)
+    approvers    → BIC_CCD_SCORECARD_APPROVER (one-to-many)
+    activity_log → BIC_CCD_SCORECARD_ACTIVITY_LOG (one-to-many)
+
+
+--------------------------------------------------------------------------------
+18. BIC_CCD_SCORECARD_APPROVER
+    Python class: BicCcdScorecardApprover
+    Purpose: Approver actions on scorecard cases
+--------------------------------------------------------------------------------
+  Column Name  Oracle Column  Type         Nullable  Notes
+  -----------  -------------  ----         --------  -----
+  approver_id  ID             INTEGER      NOT NULL  PK, Identity(start=1)
+  case_id      CASE_ID        INTEGER      NOT NULL  FK → BIC_CCD_SCORECARD.TRANSACTION_ID
+  user_id      USER_ID        INTEGER      NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  approved_at  APPROVED_AT    DATETIME     NULL
+  action       ACTION         VARCHAR(20)  NULL
+  comments     COMMENTS       TEXT         NULL
+
+
+--------------------------------------------------------------------------------
+19. BIC_CCD_SCORECARD_ACTIVITY_LOG
+    Python class: BicCcdScorecardActivityLog
+    Purpose: Activity/status history log for scorecard cases
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column     Type          Nullable  Notes
+  -----------      -------------     ----          --------  -----
+  log_id           ID                INTEGER       NOT NULL  PK, Identity(start=1)
+  case_id          CASE_ID           INTEGER       NOT NULL  FK → BIC_CCD_SCORECARD.TRANSACTION_ID
+  case_status      CASE_STATUS       VARCHAR(20)   NOT NULL
+  file_id          FILE_ID           INTEGER       NULL      FK → BIC_CCD_CASE_FILE.FILE_ID
+  file_path        FILE_PATH         VARCHAR(500)  NULL
+  review_comments  REVIEW_COMMENTS   TEXT          NULL
+  created_by       CREATED_BY        VARCHAR(50)   NOT NULL  default='SYSTEM'
+  created_dt       CREATED_DT        DATETIME      NOT NULL  default=utcnow
+  action           ACTION            VARCHAR(30)   NULL
+  performed_by     PERFORMED_BY      INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  previous_status  PREVIOUS_STATUS   VARCHAR(20)   NULL
+
+
+--------------------------------------------------------------------------------
+20. BIC_CCD_CASE
+    Python class: BicCcdBicCase
+    Purpose: Generic BIC case container
+--------------------------------------------------------------------------------
+  Column Name     Oracle Column   Type         Nullable  Notes
+  -----------     -------------   ----         --------  -----
+  transaction_id  TRANSACTION_ID  INTEGER      NOT NULL  PK, Identity(start=1)
+  case_id         CASE_ID         VARCHAR(50)  NULL
+  case_status     CASE_STATUS     VARCHAR(20)  NOT NULL  default='OPEN'
+  is_active       IS_ACTIVE       BOOLEAN      NOT NULL  default=True
+  created_dt      CREATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  updated_dt      UPDATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  created_by      CREATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+  updated_by      UPDATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+
+  Relationships:
+    files → BIC_CCD_CASE_FILE (one-to-many)
+
+
+--------------------------------------------------------------------------------
+21. BIC_CCD_CASE_FILE
+    Python class: BicCcdCaseFile
+    Purpose: File attachments for BIC cases
+--------------------------------------------------------------------------------
+  Column Name     Oracle Column    Type          Nullable  Notes
+  -----------     -------------    ----          --------  -----
+  file_id         FILE_ID          INTEGER       NOT NULL  PK, Identity(start=1)
+  case_id         CASE_ID          INTEGER       NULL      FK → BIC_CCD_CASE.TRANSACTION_ID
+  review_status   REVIEW_STATUS    VARCHAR(20)   NULL
+  file_upload_id  FILE_UPLOAD_ID   VARCHAR(100)  NULL
+  file_path       FILE_PATH        VARCHAR(500)  NOT NULL
+  file_size       FILE_SIZE        INTEGER       NULL
+  file_name       FILE_NAME        VARCHAR(500)  NULL
+  created_by      CREATED_BY       VARCHAR(50)   NOT NULL  default='SYSTEM'
+  created_dt      CREATED_DT       DATETIME      NOT NULL  default=utcnow
+
+
+--------------------------------------------------------------------------------
+22. BIC_CCD_EMAIL_AUDIT
+    Python class: BicCcdEmailAudit
+    Purpose: Outbound email audit log
+--------------------------------------------------------------------------------
+  Column Name       Oracle Column      Type          Nullable  Notes
+  -----------       -------------      ----          --------  -----
+  email_id          ID                 INTEGER       NOT NULL  PK, Identity(start=1)
+  email_to          EMAIL_TO           VARCHAR(500)  NOT NULL
+  email_cc          EMAIL_CC           VARCHAR(500)  NULL
+  subject           SUBJECT            VARCHAR(500)  NOT NULL
+  template_name     TEMPLATE_NAME      VARCHAR(100)  NULL
+  status            STATUS             VARCHAR(20)   NOT NULL  default='QUEUED'
+  email_body        EMAIL_BODY         TEXT          NULL
+  error_message     ERROR_MESSAGE      VARCHAR(1000) NULL
+  uuid              UUID               VARCHAR(100)  NULL
+  created_dt        CREATED_DT         DATETIME      NOT NULL  default=utcnow
+  recipient_name    RECIPIENT_NAME     VARCHAR(200)  NULL
+  sent_dt           SENT_DT            DATETIME      NULL
+  related_kri_id    RELATED_KRI_ID     INTEGER       NULL      FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  related_status_id RELATED_STATUS_ID  INTEGER       NULL      FK → BIC_CCD_KRI_CONTROL_STATUS_TRACKER.ID
+
+
+--------------------------------------------------------------------------------
+23. BIC_CCD_SHED_LOCK
+    Python class: BicCcdSchedulerLock
+    Purpose: Distributed scheduler lock to prevent duplicate job runs
+--------------------------------------------------------------------------------
+  Column Name  Oracle Column  Type          Nullable  Notes
+  -----------  -------------  ----          --------  -----
+  job_name     NAME           VARCHAR(100)  NOT NULL  PK
+  lock_until   LOCK_UNTIL     DATETIME      NOT NULL
+  locked_at    LOCKED_AT      DATETIME      NOT NULL  default=utcnow
+  locked_by    LOCKED_BY      VARCHAR(100)  NOT NULL
+  is_locked    IS_LOCKED      BOOLEAN       NOT NULL  default=True
+
+
+--------------------------------------------------------------------------------
+24. BIC_CCD_KRI_CONFIGURATION
+    Python class: BicCcdKriConfiguration
+    Purpose: Per-dimension settings for each KRI (SLA, RAG thresholds, evidence/approval requirements)
+--------------------------------------------------------------------------------
+  Column Name         Oracle Column      Type     Nullable  Notes
+  -----------         -------------      ----     --------  -----
+  config_id           CONFIG_ID          INTEGER  NOT NULL  PK, Identity(start=1)
+  kri_id              KRI_ID             INTEGER  NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  dimension_id        CONTROL_ID         INTEGER  NOT NULL  FK → BIC_CCD_KRI_CONTROL.CONTROL_ID
+  sla_days            SLA_DAYS           INTEGER  NOT NULL  default=3
+  variance_threshold  VARIANCE_THRESHOLD FLOAT    NOT NULL  default=10.0
+  rag_green_max       RAG_GREEN_MAX      FLOAT    NULL
+  rag_amber_max       RAG_AMBER_MAX      FLOAT    NULL
+  requires_evidence   REQUIRES_EVIDENCE  BOOLEAN  NOT NULL  default=True
+  requires_approval   REQUIRES_APPROVAL  BOOLEAN  NOT NULL  default=True
+  freeze_day          FREEZE_DAY         INTEGER  NOT NULL  default=15
+  sla_start_day       SLA_START_DAY      INTEGER  NULL
+  sla_end_day         SLA_END_DAY        INTEGER  NULL
+  rag_thresholds      RAG_THRESHOLDS     TEXT     NULL
+  is_active           IS_ACTIVE          BOOLEAN  NOT NULL  default=True
+  created_dt          CREATED_DT         DATETIME NOT NULL  [AuditMixin]
+  updated_dt          UPDATED_DT         DATETIME NOT NULL  [AuditMixin]
+  created_by          CREATED_BY         VARCHAR(50) NOT NULL [AuditMixin]
+  updated_by          UPDATED_BY         VARCHAR(50) NOT NULL [AuditMixin]
+
+  Constraints:
+    UNIQUE (KRI_ID, CONTROL_ID) — uq_bic_ccd_kri_config_dim
+
+  Relationships:
+    kri       → BIC_CCD_KRI_CONFIG (many-to-one)
+    dimension → BIC_CCD_KRI_CONTROL (many-to-one)
+
+
+--------------------------------------------------------------------------------
+25. BIC_CCD_APP_USER
+    Python class: BicCcdAppUser
+    Purpose: Application user accounts
+--------------------------------------------------------------------------------
+  Column Name    Oracle Column   Type          Nullable  Notes
+  -----------    -------------   ----          --------  -----
+  user_id        USER_ID         INTEGER       NOT NULL  PK, Identity(start=1)
+  soe_id         SOE_ID          VARCHAR(20)   NOT NULL  UNIQUE
+  full_name      FULL_NAME       VARCHAR(200)  NOT NULL
+  email          EMAIL           VARCHAR(200)  NOT NULL
+  department     DEPARTMENT      VARCHAR(100)  NULL
+  is_active      IS_ACTIVE       BOOLEAN       NOT NULL  default=True
+  last_login_dt  LAST_LOGIN_DT   DATETIME      NULL
+  created_dt     CREATED_DT      DATETIME      NOT NULL  [AuditMixin]
+  updated_dt     UPDATED_DT      DATETIME      NOT NULL  [AuditMixin]
+  created_by     CREATED_BY      VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by     UPDATED_BY      VARCHAR(50)   NOT NULL  [AuditMixin]
+
+  Relationships:
+    roles → BIC_CCD_USER_ROLE_MAPPING (one-to-many)
+
+
+--------------------------------------------------------------------------------
+26. BIC_CCD_USER_ROLE_MAPPING
+    Python class: BicCcdUserRoleMapping
+    Purpose: Maps users to application roles with optional region scope
+--------------------------------------------------------------------------------
+  Column Name     Oracle Column   Type         Nullable  Notes
+  -----------     -------------   ----         --------  -----
+  mapping_id      MAPPING_ID      INTEGER      NOT NULL  PK, Identity(start=1)
+  user_id         USER_ID         INTEGER      NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  role_code       ROLE_CODE       VARCHAR(30)  NOT NULL
+  region_id       REGION_ID       INTEGER      NULL      FK → BIC_CCD_REGION.REGION_ID (NULL = all regions)
+  is_active       IS_ACTIVE       BOOLEAN      NOT NULL  default=True
+  effective_from  EFFECTIVE_FROM  DATE         NOT NULL
+  effective_to    EFFECTIVE_TO    DATE         NULL
+  created_dt      CREATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  updated_dt      UPDATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  created_by      CREATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+  updated_by      UPDATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+
+  Constraints:
+    UNIQUE (USER_ID, ROLE_CODE, REGION_ID) — uq_bic_ccd_user_role_region
+
+  Relationships:
+    user   → BIC_CCD_APP_USER (many-to-one)
+    region → BIC_CCD_REGION (many-to-one, nullable)
+
+
+--------------------------------------------------------------------------------
+27. BIC_CCD_MAKER_CHECKER_SUBMISSION
+    Python class: BicCcdMakerCheckerSubmission
+    Purpose: Maker-Checker workflow submissions with L1/L2/L3 approval tracking
+--------------------------------------------------------------------------------
+  Column Name       Oracle Column    Type          Nullable  Notes
+  -----------       -------------    ----          --------  -----
+  submission_id     SUBMISSION_ID    INTEGER       NOT NULL  PK, Identity(start=1)
+  status_id         STATUS_ID        INTEGER       NOT NULL  FK → BIC_CCD_KRI_CONTROL_STATUS_TRACKER.ID
+  evidence_id       EVIDENCE_ID      INTEGER       NULL      FK → BIC_CCD_KRI_EVIDENCE.ID
+  submitted_by      SUBMITTED_BY     INTEGER       NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  submitted_dt      SUBMITTED_DT     DATETIME      NOT NULL  default=utcnow
+  submission_notes  SUBMISSION_NOTES TEXT          NULL
+  l1_approver_id    L1_APPROVER_ID   INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  l1_action         L1_ACTION        VARCHAR(20)   NULL
+  l1_action_dt      L1_ACTION_DT     DATETIME      NULL
+  l1_comments       L1_COMMENTS      VARCHAR(2000) NULL
+  l2_approver_id    L2_APPROVER_ID   INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  l2_action         L2_ACTION        VARCHAR(20)   NULL
+  l2_action_dt      L2_ACTION_DT     DATETIME      NULL
+  l2_comments       L2_COMMENTS      VARCHAR(2000) NULL
+  l3_approver_id    L3_APPROVER_ID   INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  l3_action         L3_ACTION        VARCHAR(20)   NULL
+  l3_action_dt      L3_ACTION_DT     DATETIME      NULL
+  l3_comments       L3_COMMENTS      VARCHAR(2000) NULL
+  final_status      FINAL_STATUS     VARCHAR(20)   NOT NULL  default='PENDING'
+  created_dt        CREATED_DT       DATETIME      NOT NULL  [AuditMixin]
+  updated_dt        UPDATED_DT       DATETIME      NOT NULL  [AuditMixin]
+  created_by        CREATED_BY       VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by        UPDATED_BY       VARCHAR(50)   NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+28. BIC_CCD_APPROVAL_AUDIT_TRAIL
+    Python class: BicCcdApprovalAuditTrail
+    Purpose: Immutable audit trail for all approval actions on KRI control statuses
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column    Type          Nullable  Notes
+  -----------      -------------    ----          --------  -----
+  audit_id         AUDIT_ID         INTEGER       NOT NULL  PK, Identity(start=1)
+  status_id        STATUS_ID        INTEGER       NOT NULL  FK → BIC_CCD_KRI_CONTROL_STATUS_TRACKER.ID
+  action           ACTION           VARCHAR(30)   NOT NULL
+  performed_by     PERFORMED_BY     INTEGER       NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  performed_dt     PERFORMED_DT     DATETIME      NOT NULL  default=utcnow
+  comments         COMMENTS         VARCHAR(2000) NULL
+  previous_status  PREVIOUS_STATUS  VARCHAR(20)   NULL
+  new_status       NEW_STATUS       VARCHAR(20)   NULL
+  ip_address       IP_ADDRESS       VARCHAR(50)   NULL
+  created_dt       CREATED_DT       DATETIME      NOT NULL  [AuditMixin]
+  updated_dt       UPDATED_DT       DATETIME      NOT NULL  [AuditMixin]
+  created_by       CREATED_BY       VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by       UPDATED_BY       VARCHAR(50)   NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+29. BIC_CCD_VARIANCE_SUBMISSION
+    Python class: BicCcdVarianceSubmission
+    Purpose: Variance commentary submissions for metric deviations
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column    Type          Nullable  Notes
+  -----------      -------------    ----          --------  -----
+  variance_id      VARIANCE_ID      INTEGER       NOT NULL  PK, Identity(start=1)
+  metric_id        METRIC_ID        INTEGER       NOT NULL  FK → BIC_CCD_KRI_METRIC.METRIC_ID
+  status_id        STATUS_ID        INTEGER       NULL      FK → BIC_CCD_KRI_CONTROL_STATUS_TRACKER.ID
+  variance_pct     VARIANCE_PCT     FLOAT         NOT NULL
+  commentary       COMMENTARY       TEXT          NOT NULL
+  submitted_by     SUBMITTED_BY     INTEGER       NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  submitted_dt     SUBMITTED_DT     DATETIME      NOT NULL  default=utcnow
+  review_status    REVIEW_STATUS    VARCHAR(20)   NOT NULL  default='PENDING'
+  reviewed_by      REVIEWED_BY      INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  reviewed_dt      REVIEWED_DT      DATETIME      NULL
+  review_comments  REVIEW_COMMENTS  VARCHAR(2000) NULL
+  created_dt       CREATED_DT       DATETIME      NOT NULL  [AuditMixin]
+  updated_dt       UPDATED_DT       DATETIME      NOT NULL  [AuditMixin]
+  created_by       CREATED_BY       VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by       UPDATED_BY       VARCHAR(50)   NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+30. BIC_CCD_ESCALATION_CONFIG
+    Python class: BicCcdEscalationConfig
+    Purpose: Escalation rules and thresholds per region
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column     Type         Nullable  Notes
+  -----------      -------------     ----         --------  -----
+  config_id        CONFIG_ID         INTEGER      NOT NULL  PK, Identity(start=1)
+  region_id        REGION_ID         INTEGER      NULL      FK → BIC_CCD_REGION.REGION_ID
+  escalation_type  ESCALATION_TYPE   VARCHAR(30)  NOT NULL
+  threshold_hours  THRESHOLD_HOURS   INTEGER      NOT NULL  default=72
+  reminder_hours   REMINDER_HOURS    INTEGER      NOT NULL  default=24
+  max_reminders    MAX_REMINDERS     INTEGER      NOT NULL  default=3
+  escalate_to_role ESCALATE_TO_ROLE  VARCHAR(30)  NOT NULL
+  email_template   EMAIL_TEMPLATE    TEXT         NULL
+  is_active        IS_ACTIVE         BOOLEAN      NOT NULL  default=True
+  created_dt       CREATED_DT        DATETIME     NOT NULL  [AuditMixin]
+  updated_dt       UPDATED_DT        DATETIME     NOT NULL  [AuditMixin]
+  created_by       CREATED_BY        VARCHAR(50)  NOT NULL  [AuditMixin]
+  updated_by       UPDATED_BY        VARCHAR(50)  NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+31. BIC_CCD_NOTIFICATION
+    Python class: BicCcdNotification
+    Purpose: In-app notifications for users
+--------------------------------------------------------------------------------
+  Column Name        Oracle Column       Type          Nullable  Notes
+  -----------        -------------       ----          --------  -----
+  notification_id    NOTIFICATION_ID     INTEGER       NOT NULL  PK, Identity(start=1)
+  user_id            USER_ID             INTEGER       NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  title              TITLE               VARCHAR(300)  NOT NULL
+  message            MESSAGE             VARCHAR(2000) NOT NULL
+  notification_type  NOTIFICATION_TYPE   VARCHAR(30)   NULL
+  is_read            IS_READ             BOOLEAN       NOT NULL  default=False
+  link_url           LINK_URL            VARCHAR(500)  NULL
+  created_dt         CREATED_DT          DATETIME      NOT NULL  [AuditMixin]
+  updated_dt         UPDATED_DT          DATETIME      NOT NULL  [AuditMixin]
+  created_by         CREATED_BY          VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by         UPDATED_BY          VARCHAR(50)   NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+32. BIC_CCD_APPROVAL_ASSIGNMENT_RULE
+    Python class: BicCcdApprovalAssignmentRule
+    Purpose: Rules for auto-assigning approvers based on role/region/KRI/category
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column   Type         Nullable  Notes
+  -----------      -------------   ----         --------  -----
+  rule_id          RULE_ID         INTEGER      NOT NULL  PK, Identity(start=1)
+  role_code        ROLE_CODE       VARCHAR(20)  NOT NULL
+  user_id          USER_ID         INTEGER      NULL      FK → BIC_CCD_APP_USER.USER_ID
+  region_id        REGION_ID       INTEGER      NULL      FK → BIC_CCD_REGION.REGION_ID
+  kri_id           KRI_ID          INTEGER      NULL      FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  category_id      CATEGORY_ID     INTEGER      NULL      FK → BIC_CCD_KRI_CATEGORY.CATEGORY_ID
+  priority         PRIORITY        INTEGER      NOT NULL  default=100
+  is_active        IS_ACTIVE       BOOLEAN      NOT NULL  default=True
+  created_dt       CREATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  updated_dt       UPDATED_DT      DATETIME     NOT NULL  [AuditMixin]
+  created_by       CREATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+  updated_by       UPDATED_BY      VARCHAR(50)  NOT NULL  [AuditMixin]
+
+  Constraints:
+    INDEX (ROLE_CODE, REGION_ID) — idx_bic_ccd_aar_role_region
+
+
+--------------------------------------------------------------------------------
+33. BIC_CCD_SAVED_VIEW
+    Python class: BicCcdSavedView
+    Purpose: User-saved filter/view preferences
+--------------------------------------------------------------------------------
+  Column Name   Oracle Column  Type          Nullable  Notes
+  -----------   -------------  ----          --------  -----
+  view_id       VIEW_ID        INTEGER       NOT NULL  PK, Identity(start=1)
+  user_id       USER_ID        INTEGER       NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  view_name     VIEW_NAME      VARCHAR(200)  NOT NULL
+  view_type     VIEW_TYPE      VARCHAR(30)   NOT NULL
+  filters_json  FILTERS_JSON   TEXT          NULL
+  is_default    IS_DEFAULT     BOOLEAN       NOT NULL  default=False
+  created_dt    CREATED_DT     DATETIME      NOT NULL  [AuditMixin]
+  updated_dt    UPDATED_DT     DATETIME      NOT NULL  [AuditMixin]
+  created_by    CREATED_BY     VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by    UPDATED_BY     VARCHAR(50)   NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+34. BIC_CCD_KRI_BLUESHEET
+    Python class: BicCcdKriBluesheet
+    Purpose: KRI bluesheet (one per KRI) — metadata, people, scorecard flags, runbook
+--------------------------------------------------------------------------------
+  Column Name              Oracle Column            Type          Nullable  Notes
+  -----------              -------------            ----          --------  -----
+  bluesheet_id             BLUESHEET_ID             INTEGER       NOT NULL  PK, Identity(start=1)
+  kri_id                   KRI_ID                   INTEGER       NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID, UNIQUE
+  legacy_kri_id            LEGACY_KRI_ID            VARCHAR(50)   NULL
+  threshold                THRESHOLD                VARCHAR(100)  NULL
+  circuit_breaker          CIRCUIT_BREAKER          VARCHAR(100)  NULL
+  control_ids              CONTROL_IDS              VARCHAR(500)  NULL
+  dq_objectives            DQ_OBJECTIVES            TEXT          NULL
+  primary_senior_manager   PRIMARY_SENIOR_MANAGER   VARCHAR(200)  NULL
+  metric_owner_name        METRIC_OWNER_NAME        VARCHAR(200)  NULL
+  remediation_owner_name   REMEDIATION_OWNER_NAME   VARCHAR(200)  NULL
+  bi_metrics_lead          BI_METRICS_LEAD          VARCHAR(200)  NULL
+  data_provider_name       DATA_PROVIDER_NAME       VARCHAR(200)  NULL
+  sc_uk                    SC_UK                    BOOLEAN       NOT NULL  default=False
+  sc_finance               SC_FINANCE               BOOLEAN       NOT NULL  default=False
+  sc_risk                  SC_RISK                  BOOLEAN       NOT NULL  default=False
+  sc_liquidity             SC_LIQUIDITY             BOOLEAN       NOT NULL  default=False
+  sc_capital               SC_CAPITAL               BOOLEAN       NOT NULL  default=False
+  sc_risk_reports          SC_RISK_REPORTS          BOOLEAN       NOT NULL  default=False
+  sc_markets               SC_MARKETS               BOOLEAN       NOT NULL  default=False
+  why_selected             WHY_SELECTED             TEXT          NULL
+  threshold_rationale      THRESHOLD_RATIONALE      TEXT          NULL
+  limitations              LIMITATIONS              TEXT          NULL
+  kri_calculation          KRI_CALCULATION          TEXT          NULL
+  runbook_s3_path          RUNBOOK_S3_PATH          VARCHAR(500)  NULL
+  runbook_filename         RUNBOOK_FILENAME         VARCHAR(300)  NULL
+  runbook_version          RUNBOOK_VERSION          VARCHAR(20)   NULL
+  runbook_review_date      RUNBOOK_REVIEW_DATE      DATE          NULL
+  runbook_notes            RUNBOOK_NOTES            TEXT          NULL
+  approval_status          APPROVAL_STATUS          VARCHAR(20)   NOT NULL  default='PENDING_APPROVAL'
+  submitted_by             SUBMITTED_BY             INTEGER       NULL      FK → BIC_CCD_APP_USER.USER_ID
+  submitted_dt             SUBMITTED_DT             DATETIME      NULL
+  created_dt               CREATED_DT               DATETIME      NOT NULL  [AuditMixin]
+  updated_dt               UPDATED_DT               DATETIME      NOT NULL  [AuditMixin]
+  created_by               CREATED_BY               VARCHAR(50)   NOT NULL  [AuditMixin]
+  updated_by               UPDATED_BY               VARCHAR(50)   NOT NULL  [AuditMixin]
+
+
+--------------------------------------------------------------------------------
+35. BIC_CCD_KRI_APPROVAL_LOG
+    Python class: BicCcdKriApprovalLog
+    Purpose: Log of approval actions on KRI configuration (bluesheet approval)
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column    Type         Nullable  Notes
+  -----------      -------------    ----         --------  -----
+  log_id           LOG_ID           INTEGER      NOT NULL  PK, Identity(start=1)
+  kri_id           KRI_ID           INTEGER      NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  action           ACTION           VARCHAR(20)  NOT NULL
+  performed_by     PERFORMED_BY     INTEGER      NOT NULL  FK → BIC_CCD_APP_USER.USER_ID
+  performed_dt     PERFORMED_DT     DATETIME     NOT NULL  default=utcnow
+  comments         COMMENTS         TEXT         NULL
+  previous_status  PREVIOUS_STATUS  VARCHAR(20)  NULL
+  new_status       NEW_STATUS       VARCHAR(20)  NULL
+
+
+--------------------------------------------------------------------------------
+36. BIC_CCD_KRI_EVIDENCE_METADATA
+    Python class: BicCcdKriEvidenceMetadata
+    Purpose: Additional evidence metadata (email evidence, unmapped files)
+--------------------------------------------------------------------------------
+  Column Name     Oracle Column    Type           Nullable  Notes
+  -----------     -------------    ----           --------  -----
+  evidence_id     EVIDENCE_ID      INTEGER        NOT NULL  PK, Identity(start=1)
+  kri_id          KRI_ID           INTEGER        NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  control_id      CONTROL_ID_STR   VARCHAR(100)   NULL
+  region_code     REGION_CODE      VARCHAR(20)    NULL
+  period_year     PERIOD_YEAR      INTEGER        NOT NULL
+  period_month    PERIOD_MONTH     INTEGER        NOT NULL
+  iteration       ITERATION        INTEGER        NULL
+  evidence_type   EVIDENCE_TYPE    VARCHAR(20)    NOT NULL
+  action          ACTION           VARCHAR(50)    NULL
+  sender          SENDER           VARCHAR(500)   NULL
+  receiver        RECEIVER         VARCHAR(500)   NULL
+  file_name       FILE_NAME        VARCHAR(500)   NOT NULL
+  s3_object_path  S3_OBJECT_PATH   VARCHAR(1000)  NOT NULL
+  uploaded_by     UPLOADED_BY      INTEGER        NULL      FK → BIC_CCD_APP_USER.USER_ID
+  notes           NOTES            TEXT           NULL
+  is_unmapped     IS_UNMAPPED      BOOLEAN        NOT NULL  default=False
+  email_uuid      EMAIL_UUID       VARCHAR(100)   NULL
+  created_dt      CREATED_DT       DATETIME       NOT NULL  [AuditMixin]
+  updated_dt      UPDATED_DT       DATETIME       NOT NULL  [AuditMixin]
+  created_by      CREATED_BY       VARCHAR(50)    NOT NULL  [AuditMixin]
+  updated_by      UPDATED_BY       VARCHAR(50)    NOT NULL  [AuditMixin]
+
+  Constraints:
+    INDEX (KRI_ID, PERIOD_YEAR, PERIOD_MONTH) — idx_bic_ccd_evmeta_kri_period
+
+
+--------------------------------------------------------------------------------
+37. BIC_CCD_KRI_EMAIL_ITERATION
+    Python class: BicCcdKriEmailIteration
+    Purpose: Tracks email iteration counter per KRI × period
+--------------------------------------------------------------------------------
+  Column Name   Oracle Column  Type      Nullable  Notes
+  -----------   -------------  ----      --------  -----
+  iter_id       ITER_ID        INTEGER   NOT NULL  PK, Identity(start=1)
+  kri_id        KRI_ID         INTEGER   NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  period_year   PERIOD_YEAR    INTEGER   NOT NULL
+  period_month  PERIOD_MONTH   INTEGER   NOT NULL
+  current_iter  CURRENT_ITER   INTEGER   NOT NULL  default=1
+  last_updated  LAST_UPDATED   DATETIME  NOT NULL  default=utcnow, onupdate=utcnow
+
+  Constraints:
+    UNIQUE (KRI_ID, PERIOD_YEAR, PERIOD_MONTH) — uq_bic_ccd_kri_iter_period
+
+
+--------------------------------------------------------------------------------
+38. BIC_CCD_KRI_AUDIT_SUMMARY
+    Python class: BicCcdKriAuditSummary
+    Purpose: Generated audit summary reports per KRI × period (S3 path to PDF/report)
+--------------------------------------------------------------------------------
+  Column Name      Oracle Column    Type           Nullable  Notes
+  -----------      -------------    ----           --------  -----
+  summary_id       SUMMARY_ID       INTEGER        NOT NULL  PK, Identity(start=1)
+  kri_id           KRI_ID           INTEGER        NOT NULL  FK → BIC_CCD_KRI_CONFIG.KRI_ID
+  period_year      PERIOD_YEAR      INTEGER        NOT NULL
+  period_month     PERIOD_MONTH     INTEGER        NOT NULL
+  s3_path          S3_PATH          VARCHAR(1000)  NOT NULL
+  generated_dt     GENERATED_DT     DATETIME       NOT NULL  default=utcnow
+  generated_by     GENERATED_BY     INTEGER        NULL      FK → BIC_CCD_APP_USER.USER_ID
+  l3_approver_name L3_APPROVER_NAME VARCHAR(200)   NULL
+  final_status     FINAL_STATUS     VARCHAR(30)    NOT NULL  default='APPROVED'
+  total_iterations TOTAL_ITERATIONS INTEGER        NOT NULL  default=0
+  total_evidences  TOTAL_EVIDENCES  INTEGER        NOT NULL  default=0
+  total_emails     TOTAL_EMAILS     INTEGER        NOT NULL  default=0
+
+
+================================================================================
+  FOREIGN KEY SUMMARY
+================================================================================
+
+  BIC_CCD_KRI_CONFIG
+    → BIC_CCD_REGION (REGION_ID)
+    → BIC_CCD_KRI_CATEGORY (CATEGORY_ID)
+
+  BIC_CCD_KRI_METRIC
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_KRI_CONTROL (CONTROL_ID)
+    → BIC_CCD_KRI_DATA_SOURCE_MAPPING (SOURCE_ID)
+
+  BIC_CCD_KRI_COMMENT
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_KRI_CONTROL (CONTROL_ID)
+    → BIC_CCD_KRI_CONTROL_STATUS_TRACKER (STATUS_ID)
+    → BIC_CCD_KRI_COMMENT (PARENT_COMMENT_ID, self-ref)
+    → BIC_CCD_APP_USER (POSTED_BY)
+
+  BIC_CCD_KRI_CONTROL_STATUS_TRACKER
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_KRI_CONTROL (CONTROL_ID)
+    → BIC_CCD_KRI_STATUS (STATUS_ID)
+    → BIC_CCD_APP_USER (ASSIGNED_TO, CURRENT_APPROVER)
+
+  BIC_CCD_KRI_EVIDENCE
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_KRI_CONTROL (CONTROL_ID)
+    → BIC_CCD_APP_USER (UPLOADED_BY)
+    → BIC_CCD_REGION (REGION_ID)
+    → BIC_CCD_KRI_CONTROL_STATUS_TRACKER (TRACKER_ID)
+
+  BIC_CCD_KRI_CONTROL_EVIDENCE_AUDIT
+    → BIC_CCD_KRI_EVIDENCE (TRACKER_ID)
+    → BIC_CCD_APP_USER (ASSIGNED_TO, PERFORMED_BY)
+    → BIC_CCD_KRI_STATUS (STATUS_ID)
+
+  BIC_CCD_KRI_ASSIGNMENT_TRACKER
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_KRI_CONTROL (CONTROL_ID)
+    → BIC_CCD_APP_USER (ASSIGNED_TO)
+    → BIC_CCD_KRI_STATUS (STATUS_ID)
+
+  BIC_CCD_KRI_ASSIGNMENT_AUDIT
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_KRI_CONTROL (CONTROL_ID)
+    → BIC_CCD_APP_USER (ASSIGNED_TO, CREATED_BY_USER)
+    → BIC_CCD_KRI_STATUS (STATUS_ID)
+    → BIC_CCD_KRI_ASSIGNMENT_TRACKER (ASSIGNMENT_ID)
+
+  BIC_CCD_KRI_CONFIGURATION
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_KRI_CONTROL (CONTROL_ID)
+
+  BIC_CCD_USER_ROLE_MAPPING
+    → BIC_CCD_APP_USER (USER_ID)
+    → BIC_CCD_REGION (REGION_ID)
+
+  BIC_CCD_KRI_USER_ROLE
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_APP_USER (USER_ID)
+
+  BIC_CCD_KRI_DATA_SOURCE_MAPPING
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+
+  BIC_CCD_KRI_DATA_SOURCE_STATUS_TRACKER
+    → BIC_CCD_KRI_DATA_SOURCE_MAPPING (MAPPING_ID)
+    → BIC_CCD_KRI_STATUS (STATUS_ID)
+
+  BIC_CCD_MAKER_CHECKER_SUBMISSION
+    → BIC_CCD_KRI_CONTROL_STATUS_TRACKER (STATUS_ID)
+    → BIC_CCD_KRI_EVIDENCE (EVIDENCE_ID)
+    → BIC_CCD_APP_USER (SUBMITTED_BY, L1_APPROVER_ID, L2_APPROVER_ID, L3_APPROVER_ID)
+
+  BIC_CCD_APPROVAL_AUDIT_TRAIL
+    → BIC_CCD_KRI_CONTROL_STATUS_TRACKER (STATUS_ID)
+    → BIC_CCD_APP_USER (PERFORMED_BY)
+
+  BIC_CCD_VARIANCE_SUBMISSION
+    → BIC_CCD_KRI_METRIC (METRIC_ID)
+    → BIC_CCD_KRI_CONTROL_STATUS_TRACKER (STATUS_ID)
+    → BIC_CCD_APP_USER (SUBMITTED_BY, REVIEWED_BY)
+
+  BIC_CCD_ESCALATION_CONFIG
+    → BIC_CCD_REGION (REGION_ID)
+
+  BIC_CCD_NOTIFICATION
+    → BIC_CCD_APP_USER (USER_ID)
+
+  BIC_CCD_APPROVAL_ASSIGNMENT_RULE
+    → BIC_CCD_APP_USER (USER_ID)
+    → BIC_CCD_REGION (REGION_ID)
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_KRI_CATEGORY (CATEGORY_ID)
+
+  BIC_CCD_SAVED_VIEW
+    → BIC_CCD_APP_USER (USER_ID)
+
+  BIC_CCD_SCORECARD
+    → BIC_CCD_REGION (REGION_ID)
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_APP_USER (CREATED_BY_USER_ID)
+    → BIC_CCD_CASE_FILE (FILE_ID)
+
+  BIC_CCD_SCORECARD_APPROVER
+    → BIC_CCD_SCORECARD (CASE_ID)
+    → BIC_CCD_APP_USER (USER_ID)
+
+  BIC_CCD_SCORECARD_ACTIVITY_LOG
+    → BIC_CCD_SCORECARD (CASE_ID)
+    → BIC_CCD_CASE_FILE (FILE_ID)
+    → BIC_CCD_APP_USER (PERFORMED_BY)
+
+  BIC_CCD_CASE_FILE
+    → BIC_CCD_CASE (CASE_ID)
+
+  BIC_CCD_EMAIL_AUDIT
+    → BIC_CCD_KRI_CONFIG (RELATED_KRI_ID)
+    → BIC_CCD_KRI_CONTROL_STATUS_TRACKER (RELATED_STATUS_ID)
+
+  BIC_CCD_KRI_BLUESHEET
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_APP_USER (SUBMITTED_BY)
+
+  BIC_CCD_KRI_APPROVAL_LOG
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_APP_USER (PERFORMED_BY)
+
+  BIC_CCD_KRI_EVIDENCE_METADATA
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_APP_USER (UPLOADED_BY)
+
+  BIC_CCD_KRI_EMAIL_ITERATION
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+
+  BIC_CCD_KRI_AUDIT_SUMMARY
+    → BIC_CCD_KRI_CONFIG (KRI_ID)
+    → BIC_CCD_APP_USER (GENERATED_BY)
+
+
+================================================================================
+  UNIQUE CONSTRAINTS SUMMARY
+================================================================================
+
+  BIC_CCD_REGION                        REGION_CODE
+  BIC_CCD_KRI_CATEGORY                  CATEGORY_CODE
+  BIC_CCD_KRI_CONTROL                   DIMENSION_CODE
+  BIC_CCD_KRI_STATUS                    STATUS_NAME
+  BIC_CCD_KRI_CONFIG                    KRI_CODE
+  BIC_CCD_KRI_USER_ROLE                 (KRI_ID, USER_ID)
+  BIC_CCD_ROLE_REGION_MAPPING           (ROLE, REGION)
+  BIC_CCD_KRI_DATA_SOURCE_STATUS_TRACKER (MAPPING_ID, MONTH, YEAR)
+  BIC_CCD_APP_USER                      SOE_ID
+  BIC_CCD_USER_ROLE_MAPPING             (USER_ID, ROLE_CODE, REGION_ID)
+  BIC_CCD_KRI_CONFIGURATION             (KRI_ID, CONTROL_ID)
+  BIC_CCD_KRI_CONTROL_STATUS_TRACKER    (KRI_ID, CONTROL_ID, YEAR, MONTH)
+  BIC_CCD_KRI_BLUESHEET                 KRI_ID (one bluesheet per KRI)
+  BIC_CCD_KRI_EMAIL_ITERATION           (KRI_ID, PERIOD_YEAR, PERIOD_MONTH)
+
+
+================================================================================
+  END OF DOCUMENT
+================================================================================
