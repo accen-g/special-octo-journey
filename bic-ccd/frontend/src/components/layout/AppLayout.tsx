@@ -7,7 +7,7 @@ import {
 } from '@mui/material';
 import {
   Dashboard as DashboardIcon, TableChart, Approval, CloudUpload,
-  TrendingUp, Settings, Menu as MenuIcon, Notifications,
+  Settings, Menu as MenuIcon, Notifications,
   Logout, ChevronLeft, Assessment, Warning, Speed,
 } from '@mui/icons-material';
 import { useAppSelector, useAppDispatch, logout, setActiveRole } from '../../store';
@@ -33,7 +33,7 @@ const navSections = [
     items: [
       { label: 'Scorecard', icon: <Assessment />, path: '/scorecard' },
       { label: 'Evidence', icon: <CloudUpload />, path: '/evidence' },
-      { label: 'Variance', icon: <TrendingUp />, path: '/variance' },
+      // { label: 'Variance', icon: <TrendingUp />, path: '/variance' },
       { label: 'Escalation Metrics', icon: <Warning />, path: '/escalation-metrics' },
     ],
   },

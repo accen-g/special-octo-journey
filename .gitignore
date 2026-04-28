@@ -6,3 +6,4 @@ bic-ccd/backend/scripts/migration/wave5_evidence_tables.py
 bic-ccd/backend/scripts/migration/wave6_scorecard_case.py
 bic-ccd/backend/scripts/migration/wave7_email_audit.py
 bic-ccd/backend/scripts/migration/__init__.py
+bic-ccd/backend/claude.json

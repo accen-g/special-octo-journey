@@ -237,7 +237,7 @@ export default function AdminPage() {
       assignRoleMutation.mutate({
         user_id: roleDialog.userId,
         role_code: newRole.role_code,
-        region_id: Number(newRole.region_id),
+        region_id: newRole.region_id === 'ALL' ? null : Number(newRole.region_id),
         effective_from: new Date().toISOString().split('T')[0],
       });
     }
@@ -329,7 +329,7 @@ export default function AdminPage() {
             <Tab icon={<PersonAdd sx={{ fontSize: 18 }} />} iconPosition="start" label="User Management" />
             <Tab icon={<Tune sx={{ fontSize: 18 }} />} iconPosition="start" label="Escalation Config" />
             <Tab icon={<Rule sx={{ fontSize: 18 }} />} iconPosition="start" label="Assignment Rules" />
-            <Tab icon={<Storage sx={{ fontSize: 18 }} />} iconPosition="start" label="System Tools" />
+            {/* <Tab icon={<Storage sx={{ fontSize: 18 }} />} iconPosition="start" label="System Tools" /> */}
           </Tabs>
 
           {/* ─── User Management ─────────────────────────── */}
@@ -851,6 +851,9 @@ export default function AdminPage() {
                 <InputLabel>Region</InputLabel>
                 <Select value={newRole.region_id} label="Region"
                   onChange={(e) => setNewRole({ ...newRole, region_id: e.target.value })}>
+                  {newRole.role_code === 'SYSTEM_ADMIN' && (
+                    <MenuItem value="ALL">All Regions</MenuItem>
+                  )}
                   {regions.map((r: any) => (
                     <MenuItem key={r.region_id} value={r.region_id}>{r.region_name}</MenuItem>
                   ))}
@@ -890,7 +893,7 @@ export default function AdminPage() {
               assignRoleMutation.mutate({
                 user_id: roleDialog.userId,
                 role_code: newRole.role_code,
-                region_id: Number(newRole.region_id),
+                region_id: newRole.region_id === 'ALL' ? null : Number(newRole.region_id),
                 effective_from: new Date().toISOString().split('T')[0],
               });
             }}

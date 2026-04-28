@@ -626,39 +626,58 @@ def list_kris_with_evidence(
     if not kri_ids:
         return []
 
-    # 2 ── Active KRI × Control configurations (one row per pair)
-    configs = (
-        db.query(KriConfiguration, ControlDimensionMaster)
+    # 2+3 ── KRI × Control pairs with status.
+    #
+    # Primary source: MonthlyControlStatus (populated by monthly_init for every
+    # active KRI × dimension).  This works even when BIC_CCD_KRI_CONFIGURATION
+    # is empty (e.g. right after the BIC_CCD table migration before data is
+    # back-filled).
+    #
+    # Fallback: KriConfiguration × ControlDimensionMaster — used when
+    # monthly_init has not yet been run for the requested period (status
+    # defaults to "NOT_STARTED" in that case).
+    status_dim_rows = (
+        db.query(MonthlyControlStatus, ControlDimensionMaster)
         .join(
             ControlDimensionMaster,
-            KriConfiguration.dimension_id == ControlDimensionMaster.dimension_id,
-        )
-        .filter(
-            KriConfiguration.kri_id.in_(kri_ids),
-            KriConfiguration.is_active == True,
-        )
-        .order_by(KriConfiguration.kri_id, ControlDimensionMaster.display_order)
-        .all()
-    )
-
-    # 3 ── Per-control status from CCB_KRI_CONTROL_STATUS_TRACKER
-    #       Key: (kri_id, dimension_id)
-    status_rows = (
-        db.query(
-            MonthlyControlStatus.kri_id,
-            MonthlyControlStatus.dimension_id,
-            MonthlyControlStatus.status,
+            MonthlyControlStatus.dimension_id == ControlDimensionMaster.dimension_id,
         )
         .filter(
             MonthlyControlStatus.period_year == year,
             MonthlyControlStatus.period_month == month,
             MonthlyControlStatus.kri_id.in_(kri_ids),
         )
+        .order_by(MonthlyControlStatus.kri_id, ControlDimensionMaster.display_order)
         .all()
     )
-    status_map: dict[tuple, str] = {
-        (r.kri_id, r.dimension_id): r.status for r in status_rows
-    }
+
+    if status_dim_rows:
+        # Build (kri_id, dimension_id, dim) triples and status map in one pass.
+        config_pairs: list[tuple] = [
+            (sr.kri_id, sr.dimension_id, dim) for sr, dim in status_dim_rows
+        ]
+        status_map: dict[tuple, str] = {
+            (sr.kri_id, sr.dimension_id): sr.status for sr, _ in status_dim_rows
+        }
+    else:
+        # Fallback: monthly_init not yet run for this period.
+        fallback_configs = (
+            db.query(KriConfiguration, ControlDimensionMaster)
+            .join(
+                ControlDimensionMaster,
+                KriConfiguration.dimension_id == ControlDimensionMaster.dimension_id,
+            )
+            .filter(
+                KriConfiguration.kri_id.in_(kri_ids),
+                KriConfiguration.is_active == True,
+            )
+            .order_by(KriConfiguration.kri_id, ControlDimensionMaster.display_order)
+            .all()
+        )
+        config_pairs = [
+            (cfg.kri_id, cfg.dimension_id, dim) for cfg, dim in fallback_configs
+        ]
+        status_map = {}  # no tracker rows yet; status defaults to "NOT_STARTED"
 
     # 4 ── Per-control evidence counts from BIC_KRI_EVIDENCE_METADATA
     #       Grouped by (kri_id, control_id string = dimension_code)
@@ -711,17 +730,17 @@ def list_kris_with_evidence(
 
     # 6 ── Build one row per KRI × Control
     rows = []
-    for cfg, dim in configs:
-        kri = kri_map[cfg.kri_id]
-        ctrl_status = status_map.get((cfg.kri_id, cfg.dimension_id), "NOT_STARTED")
+    for kri_id_val, dim_id_val, dim in config_pairs:
+        kri = kri_map[kri_id_val]
+        ctrl_status = status_map.get((kri_id_val, dim_id_val), "NOT_STARTED")
 
         # Apply server-side status filter if requested
         if status and ctrl_status != status:
             continue
 
         dim_code = dim.dimension_code  # e.g. "TIMELINESS"
-        ev_cnt = ev_count_map.get((cfg.kri_id, dim_code), 0)
-        bs = bs_map.get(cfg.kri_id)
+        ev_cnt = ev_count_map.get((kri_id_val, dim_code), 0)
+        bs = bs_map.get(kri_id_val)
 
         rows.append(
             AuditEvidenceKriRow(
@@ -730,7 +749,7 @@ def list_kris_with_evidence(
                 kri_name=kri.kri_name,
                 region_name=kri.region.region_name if kri.region else None,
                 region_code=kri.region.region_code if kri.region else None,
-                dimension_id=cfg.dimension_id,
+                dimension_id=dim_id_val,
                 control_id=dim_code,
                 control_name=dim.dimension_name,
                 data_provider_name=bs.data_provider_name if bs else None,

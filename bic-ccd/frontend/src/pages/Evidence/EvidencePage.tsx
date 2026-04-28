@@ -625,7 +625,8 @@ export default function EvidencePage() {
   const filtered = kris.filter(k => {
     const q = search.toLowerCase();
     if (q && !k.kri_code?.toLowerCase().includes(q) && !k.kri_name.toLowerCase().includes(q)) return false;
-    if (statusFilter && k.status !== statusFilter) return false;
+    if (statusFilter === 'WITH_EVIDENCE' && k.evidence_count <= 0) return false;
+    if (statusFilter && statusFilter !== 'WITH_EVIDENCE' && k.status !== statusFilter) return false;
     if (colFilters.kri_code && !k.kri_code?.toLowerCase().includes(colFilters.kri_code.toLowerCase())) return false;
     if (colFilters.kri_name && !k.kri_name.toLowerCase().includes(colFilters.kri_name.toLowerCase())) return false;
     if (colFilters.region && !(k.region_name ?? k.region_code ?? '').toLowerCase().includes(colFilters.region.toLowerCase())) return false;
@@ -678,30 +679,48 @@ export default function EvidencePage() {
         </Typography>
       </Box>
 
-      {/* Stat Cards */}
+      {/* Stat Cards — click to filter the table below */}
       <Grid container spacing={2} sx={{ mb: 3 }}>
         {[
-          { label: 'Total Controls', value: totalKris, color: '#1a56db', icon: <Assignment /> },
-          { label: 'With Evidence', value: withEvidence, color: '#065f46', icon: <CheckCircle /> },
-          { label: 'Pending Approval', value: pending, color: '#92400e', icon: <HourglassEmpty /> },
-          { label: 'Approved', value: approved, color: '#065f46', icon: <CheckCircle /> },
-        ].map((card) => (
-          <Grid item xs={6} sm={3} key={card.label}>
-            <Card elevation={0} sx={{ border: '1px solid #e5e7eb', borderRadius: 2 }}>
-              <CardContent sx={{ py: 1.5 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <Box>
-                    <Typography sx={{ fontSize: 26, fontWeight: 700, color: card.color, lineHeight: 1 }}>
-                      {card.value}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">{card.label}</Typography>
+          { label: 'Total Controls',   value: totalKris,    color: '#1a56db', icon: <Assignment />,    filterValue: null },
+          { label: 'With Evidence',    value: withEvidence, color: '#065f46', icon: <CheckCircle />,   filterValue: 'WITH_EVIDENCE' },
+          { label: 'Pending Approval', value: pending,      color: '#92400e', icon: <HourglassEmpty />, filterValue: 'PENDING_APPROVAL' },
+          { label: 'Approved',         value: approved,     color: '#065f46', icon: <CheckCircle />,   filterValue: 'APPROVED' },
+        ].map((card) => {
+          const isActive = statusFilter === card.filterValue;
+          return (
+            <Grid item xs={6} sm={3} key={card.label}>
+              <Card
+                elevation={0}
+                onClick={() => setStatusFilter(card.filterValue)}
+                sx={{
+                  border: isActive ? `2px solid ${card.color}` : '1px solid #e5e7eb',
+                  borderRadius: 2,
+                  cursor: 'pointer',
+                  transition: 'border-color 0.15s, box-shadow 0.15s',
+                  '&:hover': {
+                    borderColor: card.color,
+                    boxShadow: `0 0 0 3px ${card.color}22`,
+                  },
+                }}
+              >
+                <CardContent sx={{ py: 1.5 }}>
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Box>
+                      <Typography sx={{ fontSize: 26, fontWeight: 700, color: card.color, lineHeight: 1 }}>
+                        {card.value}
+                      </Typography>
+                      <Typography variant="caption" color={isActive ? card.color : 'text.secondary'} fontWeight={isActive ? 700 : 400}>
+                        {card.label}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ color: card.color, opacity: isActive ? 0.7 : 0.3 }}>{card.icon}</Box>
                   </Box>
-                  <Box sx={{ color: card.color, opacity: 0.3 }}>{card.icon}</Box>
-                </Box>
-              </CardContent>
-            </Card>
-          </Grid>
-        ))}
+                </CardContent>
+              </Card>
+            </Grid>
+          );
+        })}
       </Grid>
 
       {/* Toolbar: search + status chips */}
