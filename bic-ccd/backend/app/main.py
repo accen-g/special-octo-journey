@@ -8,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 import os
 
 from app.config import get_settings
-from app.database import engine, Base, SessionLocal
+from app.database import engine, Base, BicCcdBase, SessionLocal
 from app.middleware import RequestIdMiddleware, AuditLogMiddleware
 from app.scheduler import create_scheduler
 from app.routers import (
@@ -40,15 +40,60 @@ logging.basicConfig(
 logger = logging.getLogger("bic_ccd")
 
 
+def _seed_users_only(db):
+    """Seed only AppUser + UserRoleMapping when USE_BIC_CCD_TABLES=true.
+
+    BIC_CCD_* tables are intentionally left empty — populated manually.
+    UserRoleMapping.region_id is set to NULL here because BIC_CCD_REGION rows
+    don't exist yet (user will add them).
+    """
+    if db.query(AppUser).count() > 0:
+        logger.info("Users already seeded, skipping user seed.")
+        return
+
+    users_data = [
+        ("SA41230", "Shahzad Alam",       "sa41230@company.com", "Risk Mgmt", "MANAGEMENT"),
+        ("VR31849", "Vivek Avireddy",      "vr31849@company.com", "Controls",  "L1_APPROVER"),
+        ("HK51214", "Hasmukh Katechiya",   "hk51214@company.com", "Controls",  "L2_APPROVER"),
+        ("DH71298", "Dawn Higgs",          "dh71298@company.com", "Controls",  "L3_ADMIN"),
+        ("GD24043", "Gayatri Deshmukh",    "gd24043@company.com", "Data Ops",  "DATA_PROVIDER"),
+        ("PT81286", "Paul Thirtle",        "pt81286@company.com", "Metrics",   "METRIC_OWNER"),
+        ("SYSADMIN", "System Admin",       "admin@company.com",   "IT",        "SYSTEM_ADMIN"),
+    ]
+    for soe, name, email, dept, role in users_data:
+        u = AppUser(soe_id=soe, full_name=name, email=email, department=dept,
+                    created_by="SYSTEM", updated_by="SYSTEM")
+        db.add(u)
+    db.flush()
+
+    for u, role in [(db.query(AppUser).filter_by(soe_id=soe).one(), role)
+                    for soe, *_, role in users_data]:
+        db.add(UserRoleMapping(
+            user_id=u.user_id, role_code=role, region_id=None,
+            effective_from=date(2024, 1, 1), created_by="SYSTEM", updated_by="SYSTEM",
+        ))
+    db.commit()
+    logger.info("Seeded %d users (BIC_CCD mode — no KRI/region data seeded).", len(users_data))
+
+
 def seed_database():
     """Seed dev database with demo data (idempotent — safe to call on every restart).
 
     Oracle-safe: each phase commits independently so FK constraints are satisfied
     even when previous runs left partial data.  Every section checks its own table
     count to decide whether to skip rather than relying on a single terminal guard.
+
+    When USE_BIC_CCD_TABLES=true on Oracle (non-SQLite), only auth users are
+    seeded; BIC_CCD_* lookup/KRI data comes from manual population.
+    In SQLite/test mode the full seed runs into BIC_CCD_* tables so tests
+    that expect lookup rows pass without an Oracle connection.
     """
     db = SessionLocal()
     try:
+        if settings.USE_BIC_CCD_TABLES and not settings.USE_SQLITE:
+            _seed_users_only(db)
+            return
+
         # Phase guard: if MonthlyControlStatus already has rows the full seed
         # ran to completion — skip everything.
         if db.query(MonthlyControlStatus).count() > 0:
@@ -408,6 +453,8 @@ def seed_database():
 async def lifespan(app: FastAPI):
     logger.info(f"Starting BIC-CCD v{settings.APP_VERSION} ({settings.ENV})")
     Base.metadata.create_all(bind=engine)
+    import app.models.bic_ccd  # noqa — ensure BicCcdBase mapper is populated
+    BicCcdBase.metadata.create_all(bind=engine)
     seed_database()
 
     scheduler = None

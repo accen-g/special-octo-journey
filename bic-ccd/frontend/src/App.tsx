@@ -92,21 +92,7 @@ export default function App() {
             </RequireRole>
           } />
 
-          <Route path="kri-config" element={
-            <RequireRole roles={getRolesForPage('kri-config')}>
-              <KriConfigPage />
-            </RequireRole>
-          } />
-          <Route path="kri-config/new" element={
-            <RequireRole roles={getRolesForPage('kri-config')}>
-              <KriOnboardingWizard />
-            </RequireRole>
-          } />
-          <Route path="kri-config/:kriId" element={
-            <RequireRole roles={getRolesForPage('kri-config')}>
-              <KriDetailPage />
-            </RequireRole>
-          } />
+          {/* KRI Config page hidden — routes disabled */}
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

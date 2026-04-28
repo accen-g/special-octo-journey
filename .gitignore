@@ -1,0 +1,9 @@
+bic-ccd/backend/scripts/migration/wave1_shed_lock.py
+bic-ccd/backend/scripts/migration/wave2_master_tables.py
+bic-ccd/backend/scripts/migration/wave3_config_tables.py
+bic-ccd/backend/scripts/migration/wave4_tracker_tables.py
+bic-ccd/backend/scripts/migration/wave5_evidence_tables.py
+bic-ccd/backend/scripts/migration/wave6_scorecard_case.py
+bic-ccd/backend/scripts/migration/wave7_email_audit.py
+bic-ccd/backend/scripts/migration/__init__.py
+bic-ccd/backend/claude.json

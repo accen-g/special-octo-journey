@@ -50,6 +50,12 @@ class Settings(BaseSettings):
     EMAIL_ENVIRONMENT: str = "UAT"
     EMAIL_MODULE_NAME: str = "BIC_KRI_EVIDENCE"
 
+    # ORM table-set toggle — DEV only.
+    # false (default) → queries hit CCB_* tables (legacy behaviour)
+    # true            → queries hit BIC_CCD_* tables (new schema)
+    # UAT / PROD must always run with USE_BIC_CCD_TABLES=true
+    USE_BIC_CCD_TABLES: bool = False
+
     # Dev-mode mock switches — controlled exclusively via .env (False = prod-safe default)
     DEV_MOCK_EMAIL: bool = False  # true  → write email payloads to disk instead of HTTP call
     DEV_MOCK_S3: bool = False     # true  → skip real S3, write to local_evidence_store/ on disk
